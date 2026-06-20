@@ -134,4 +134,3 @@ kons publish --package packages/lib
 - [Manifest](docs/manifest.md) - how to write `kons.scm`
 - [Workspaces](docs/workspaces.md) - many packages in one repo
 - [Development](docs/development.md) - hacking on kons itself
-- [Cargo notes](docs/cargo-parity.md) - notes for users coming from Cargo
