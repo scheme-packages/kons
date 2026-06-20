@@ -6,7 +6,10 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates tar gzip \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json server.js smtp.js ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY server.js smtp.js ./
 COPY public ./public
 
 RUN mkdir -p /var/lib/kons-registry
