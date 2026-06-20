@@ -1,0 +1,32 @@
+/* Maple Mono via Fontsource CDN (OFL-1.1) */
+@font-face {
+  font-family: "Maple Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(https://cdn.jsdelivr.net/fontsource/fonts/maple-mono@5.2.6/latin-400-normal.woff2) format("woff2");
+}
+
+@font-face {
+  font-family: "Maple Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url(https://cdn.jsdelivr.net/fontsource/fonts/maple-mono@5.2.6/latin-500-normal.woff2) format("woff2");
+}
+
+@font-face {
+  font-family: "Maple Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url(https://cdn.jsdelivr.net/fontsource/fonts/maple-mono@5.2.6/latin-600-normal.woff2) format("woff2");
+}
+
+@font-face {
+  font-family: "Maple Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(https://cdn.jsdelivr.net/fontsource/fonts/maple-mono@5.2.6/latin-700-normal.woff2) format("woff2");
+}

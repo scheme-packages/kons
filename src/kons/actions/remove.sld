@@ -1,0 +1,51 @@
+(define-library (kons actions remove)
+  (export cmd-remove)
+  (import (scheme base)
+          (scheme file)
+          (scheme process-context)
+          (scheme write)
+          (kons util)
+          (kons implementation)
+          (kons manifest)
+          (kons features)
+          (kons lock)
+          (kons runner)
+          (kons options)
+          (kons actions package-edit))
+
+  (begin
+(define (cmd-remove cmd)
+  (let* ((manifest-path* (command-manifest-path cmd))
+         (manifest (parse-manifest manifest-path*))
+         (positionals (command-rest cmd))
+         (raw-name (if (pair? positionals)
+                       (car positionals)
+                       (usage-error "remove requires dependency name")))
+         (name (name-parts-from-cli raw-name))
+         (blocks (cond
+                  ((command-flag? cmd "all") '(dependencies dev-dependencies))
+                  ((command-flag? cmd "dev") '(dev-dependencies))
+                  (else '(dependencies))))
+         (removed-blocks (remove-blocks-from-manifest manifest blocks name)))
+    (when (null? removed-blocks)
+      (manifest-error "dependency is not present" name blocks))
+    (if (command-flag? cmd "plan")
+        (writeln
+         `(remove-plan
+           (manifest ,manifest-path*)
+           (blocks ,@removed-blocks)
+           (dependency ,name)))
+        (let* ((exprs (read-all-exprs manifest-path*))
+               (result (remove-from-blocks exprs blocks name)))
+          (write-manifest-edit-and-refresh-lock!
+           manifest-path*
+           (car result)
+           cmd
+           "refreshed kons.lock after remove")
+          (display "removed ")
+          (display raw-name)
+          (display " from ")
+          (write removed-blocks)
+          (newline)))))
+
+  ))

@@ -1,0 +1,67 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -n "${KONS_LIBDIR:-}" ]; then
+  LIBDIR=$KONS_LIBDIR
+  VENDORDIR=${KONS_VENDORDIR:-}
+elif [ -d "$ROOT/src/kons" ]; then
+  LIBDIR=$ROOT/src
+  VENDORDIR=$ROOT/vendor
+elif [ -d "$ROOT/lib/kons/src/kons" ]; then
+  LIBDIR=$ROOT/lib/kons/src
+  VENDORDIR=$ROOT/lib/kons/vendor
+elif [ -d "$ROOT/share/kons/src/kons" ]; then
+  LIBDIR=$ROOT/share/kons/src
+  VENDORDIR=$ROOT/share/kons/vendor
+else
+  echo "kons: cannot find installed libraries; set KONS_LIBDIR" >&2
+  exit 1
+fi
+
+scheme=${KONS_SCHEME:-${SCHEME:-capy}}
+main=$LIBDIR/kons/main.scm
+ARGS_SRCDIR=
+if [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR/scm-args/src" ]; then
+  ARGS_SRCDIR=$VENDORDIR/scm-args/src
+elif [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR" ]; then
+  ARGS_SRCDIR=$VENDORDIR
+fi
+
+case "$scheme" in
+  capy)
+    if [ -n "$ARGS_SRCDIR" ]; then
+      exec capy -L "$ARGS_SRCDIR,$LIBDIR" -s "$main" -- "$@"
+    else
+      exec capy -L "$LIBDIR" -s "$main" -- "$@"
+    fi
+    ;;
+  gauche|gosh)
+    if [ -n "$ARGS_SRCDIR" ]; then
+      exec gosh -r7 -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+    else
+      exec gosh -r7 -I "$LIBDIR" "$main" "$@"
+    fi
+    ;;
+  guile)
+    GUILE_AUTO_COMPILE=${GUILE_AUTO_COMPILE:-0}
+    export GUILE_AUTO_COMPILE
+    if [ -n "$ARGS_SRCDIR" ]; then
+      exec guile --r7rs -L "$ARGS_SRCDIR" -L "$LIBDIR" "$main" "$@"
+    else
+      exec guile --r7rs -L "$LIBDIR" "$main" "$@"
+    fi
+    ;;
+  chibi|chibi-scheme)
+    if [ -n "$ARGS_SRCDIR" ]; then
+      exec chibi-scheme -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+    else
+      exec chibi-scheme -I "$LIBDIR" "$main" "$@"
+    fi
+    ;;
+  *)
+    echo "kons: unsupported manager scheme: $scheme" >&2
+    exit 1
+    ;;
+esac

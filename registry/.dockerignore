@@ -1,0 +1,9 @@
+.dockerignore
+data/
+.env
+.git/
+.gitignore
+README.md
+DEPLOY.md
+PLAN.md
+.env.example

@@ -1,0 +1,3 @@
+[submodule "vendor/scm-args"]
+	path = vendor/scm-args
+	url = https://github.com/playx18/scm-args

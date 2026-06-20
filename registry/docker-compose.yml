@@ -1,0 +1,23 @@
+services:
+  registry:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    environment:
+      KONS_REGISTRY_HOST: 0.0.0.0
+      KONS_REGISTRY_PORT: 8787
+      KONS_REGISTRY_DATA: /var/lib/kons-registry
+    volumes:
+      - registry-data:/var/lib/kons-registry
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  registry-data:

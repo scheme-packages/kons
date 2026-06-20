@@ -1,0 +1,23 @@
+(define-library (kons actions status)
+  (export cmd-status)
+  (import (scheme base)
+          (scheme file)
+          (scheme process-context)
+          (scheme write)
+          (kons util)
+          (kons implementation)
+          (kons manifest)
+          (kons features)
+          (kons lock)
+          (kons runner)
+          (kons options)
+          (kons actions status-shared))
+
+  (begin
+(define (cmd-status cmd)
+  (let* ((manifest (parse-manifest (command-manifest-path cmd)))
+         (features (active-features manifest cmd)))
+    (ensure-supported-active-features manifest features cmd)
+    (writeln (status-form manifest features cmd))))
+
+  ))

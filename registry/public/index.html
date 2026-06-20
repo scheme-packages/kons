@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext x='12' y='18' font-family='monospace' font-size='16' font-weight='600' text-anchor='middle' fill='%23d97706'%3E(k)%3C/text%3E%3C/svg%3E">
+    <title>(kons) registry</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="/fonts.css">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="/" data-public-path="/" aria-label="(kons) registry home">
+          <span class="brand-mark"><span class="brand-paren">(</span><span class="brand-name">kons</span><span class="brand-paren">)</span></span>
+        </a>
+        <nav class="navlinks" aria-label="Registry navigation">
+          <a class="navlink is-active" href="/" data-public-path="/" data-nav="packages">Packages</a>
+          <a class="navlink" href="/account" data-public-path="/account" data-nav="account">Account</a>
+          <a class="navlink" href="/index/config.json" data-public-path="/index/config.json" target="_blank" rel="noopener" data-nav="index">Index</a>
+          <a class="navlink" href="https://github.com/scheme-packages/kons" data-source-link target="_blank" rel="noopener" data-nav="source">Source</a>
+        </nav>
+        <div class="topbar-actions">
+          <button id="theme-toggle" class="btn btn-ghost btn-icon" type="button" title="Toggle theme" aria-label="Toggle theme"></button>
+          <div id="user-pill"></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container page">
+      <section id="home-view">
+        <div class="hero">
+          <div class="brand-mark hero-mark"><span class="brand-paren">(</span><span class="brand-name">kons</span><span class="brand-paren">)</span></div>
+          <h1>Package registry</h1>
+          <p id="registry-meta" class="lead">Loading registry metadata</p>
+          <div id="registry-messages" class="notice-list"></div>
+          <div class="searchbar">
+            <span class="search-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+            </span>
+            <input id="search-input" type="search" placeholder="Search packages, owners, keywords, modules..." autocomplete="off" aria-label="Search packages">
+          </div>
+        </div>
+
+        <div class="section-head">
+          <p id="result-count" class="result-count">Loading packages</p>
+          <button id="refresh-button" class="btn btn-ghost btn-sm" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div id="results" class="package-list" aria-live="polite"></div>
+      </section>
+
+      <section id="detail-view" class="hidden">
+        <div style="margin-bottom:1rem">
+          <a class="crumb" href="#/" id="back-to-list">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            Back to packages
+          </a>
+        </div>
+        <div id="package-detail"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <small><span class="kons-mark"><span class="brand-paren">(</span><span class="brand-name">kons</span><span class="brand-paren">)</span></span> registry</small>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="/account" data-public-path="/account">Account</a>
+          <a href="/index/config.json" data-public-path="/index/config.json" target="_blank" rel="noopener">Index</a>
+          <a href="/api/v1/meta" data-public-path="/api/v1/meta" target="_blank" rel="noopener">API</a>
+          <a href="https://github.com/scheme-packages/kons" data-source-link target="_blank" rel="noopener">Source</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

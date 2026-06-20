@@ -1,0 +1,16 @@
+{
+  "name": "kons-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hostable (kons) package registry",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "KONS_EMAIL_REGISTRATION=1 KONS_EMAIL_SHOW_CODES=1 KONS_EMAIL_OPEN_REGISTRATION=1 node server.js",
+    "test": "node --test test/*.test.js",
+    "check": "node --check server.js && node --check smtp.js && node --check public/shared.js && node --check public/app.js && node --check public/account.js"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}
