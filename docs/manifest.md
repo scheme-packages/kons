@@ -17,6 +17,7 @@ Small example:
   (source-path "src")
   (main "main.scm")
   (tests "tests/main.scm")
+  (examples "examples/hello.scm")
   (bins (hello "main.scm")))
 
 (dependencies)
@@ -44,6 +45,7 @@ Common fields:
 | `main` | Main file for `kons run`. |
 | `tests` | Test files for `kons test`. |
 | `benches` | Bench files for `kons bench`. |
+| `examples` | Example files for `kons run --example NAME`. Names default to file stems. |
 | `bins` | Named commands for `kons run --bin NAME`. |
 
 ## Library discovery

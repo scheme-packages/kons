@@ -27,6 +27,7 @@
           package-main
           package-tests
           package-benches
+          package-examples
           package-scripts
           package-bins
           package-build-hooks
@@ -50,7 +51,7 @@
   (let ((fields (cdr form)))
     (ensure-known-fields
      fields
-     '(name version owner license description keywords authors documentation docs homepage site readme repository repo dialects source-path discover-libraries libraries main tests benches scripts bins features build-hooks)
+     '(name version owner license description keywords authors documentation docs homepage site readme repository repo dialects source-path discover-libraries libraries main tests benches examples scripts bins features build-hooks)
      (source-context 'package))
     (let* ((name (normalize-name (field-ref fields 'name #f) 'package-name))
            (version (field-ref fields 'version #f))
@@ -70,6 +71,7 @@
            (main (field-ref fields 'main "main.scm"))
            (tests (field-rest fields 'tests '()))
            (benches (field-rest fields 'benches '()))
+           (examples (field-rest fields 'examples '()))
            (scripts (field-rest fields 'scripts '()))
            (bins (field-rest fields 'bins '()))
            (features (field-rest fields 'features '()))
@@ -125,6 +127,7 @@
           (main . ,main)
           (tests . ,(parse-test-scripts tests))
           (benches . ,(parse-benchmark-scripts benches))
+          (examples . ,(parse-examples examples))
           (scripts . ,(parse-scripts scripts))
           (bins . ,(parse-bins bins))
           (features . ,(parse-features features))
@@ -199,6 +202,40 @@
        (manifest-error "benches entries must be script paths" path)))
    benches)
   benches)
+
+(define (parse-examples examples)
+  (map parse-example examples))
+
+(define (example-path-last-segment path)
+  (let ((parts (filter non-empty-string? (string-split path #\/))))
+    (if (null? parts) path (car (reverse parts)))))
+
+(define (example-path-name path)
+  (let ((file (example-path-last-segment path)))
+    (string->symbol
+     (cond
+      ((string-suffix? ".scm" file)
+       (substring file 0 (- (string-length file) 4)))
+      ((string-suffix? ".sps" file)
+       (substring file 0 (- (string-length file) 4)))
+      ((string-suffix? ".sld" file)
+       (substring file 0 (- (string-length file) 4)))
+      ((string-suffix? ".sls" file)
+       (substring file 0 (- (string-length file) 4)))
+      (else file)))))
+
+(define (parse-example example)
+  (cond
+   ((string? example)
+    (cons (example-path-name example) example))
+   ((and (pair? example)
+         (symbol? (car example))
+         (pair? (cdr example))
+         (string? (cadr example))
+         (null? (cddr example)))
+    (cons (car example) (cadr example)))
+   (else
+    (manifest-error "example entries must be script paths or (name \"path\")" example))))
 
 (define (parse-scripts scripts)
   (map parse-script scripts))
@@ -505,6 +542,9 @@
 
 (define (package-benches manifest)
   (alist-ref (alist-ref manifest 'package '()) 'benches '()))
+
+(define (package-examples manifest)
+  (alist-ref (alist-ref manifest 'package '()) 'examples '()))
 
 (define (package-scripts manifest)
   (alist-ref (alist-ref manifest 'package '()) 'scripts '()))

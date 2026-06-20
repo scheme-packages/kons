@@ -3,6 +3,7 @@
           file-status
           status-test-files
           status-bench-files
+          status-example-files
           status-action-list
           status-form
           fetch-with-progress
@@ -78,7 +79,7 @@
   (let ((declared (package-tests manifest)))
     (if (null? declared)
         (let ((dir (path-join (manifest-root manifest) "tests")))
-          (if (file-directory? dir)
+          (if (and (file-exists? dir) (file-directory? dir))
               (collect-test-files dir)
               '()))
         (map (lambda (path) (manifest-root-path manifest path)) declared))))
@@ -87,10 +88,13 @@
   (let ((declared (package-benches manifest)))
     (if (null? declared)
         (let ((dir (path-join (manifest-root manifest) "benches")))
-          (if (file-directory? dir)
+          (if (and (file-exists? dir) (file-directory? dir))
               (collect-scheme-files dir "benches")
               '()))
         (map (lambda (path) (manifest-root-path manifest path)) declared))))
+
+(define (status-example-files manifest)
+  (package-example-files manifest))
 
 (define (status-action-list lock-status complete materialized? main-path)
   (append
@@ -117,7 +121,8 @@
                    (activation-source-roots manifest #f features cmd)))
          (main-path (package-main-path manifest))
          (tests (status-test-files manifest))
-         (benches (status-bench-files manifest)))
+         (benches (status-bench-files manifest))
+         (examples (status-example-files manifest)))
     `(status
       (root
        (name ,(package-name manifest))
@@ -136,6 +141,9 @@
        (main ,(if main-path (file-status main-path) #f))
        (tests ,@(map file-status tests))
        (benches ,@(map file-status benches))
+       (examples ,@(map (lambda (example)
+                          `(,(car example) ,@(file-status (cdr example))))
+                        examples))
        (scripts ,@(map (lambda (script)
                          `(,(car script)
                            ,@(file-status (manifest-root-path manifest (cdr script)))))
@@ -168,6 +176,7 @@
        (default ,(if main-path (default-binary-name manifest) #f))
        (bins ,@(map car (package-bins manifest)))
        (scripts ,@(map car (package-scripts manifest)))
+       (examples ,@(map car examples))
        (tests ,@(map (lambda (path) path) tests))
        (benches ,@(map (lambda (path) path) benches)))
       (actions ,@(status-action-list status complete materialized? main-path))

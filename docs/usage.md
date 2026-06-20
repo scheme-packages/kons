@@ -60,6 +60,7 @@ kons new my-lib --lib
 kons run             # run the default program
 kons run --release   # run with release profile
 kons run --bin hello # run one named bin
+kons run --example hello # run one example
 kons run --list      # show runnable targets
 kons repl            # open REPL with package load paths
 

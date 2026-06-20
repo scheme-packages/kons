@@ -6,6 +6,7 @@
           write-new-main
           write-new-test
           write-new-bench
+          write-new-example
           write-new-gitignore
           write-exprs-file
           starter-command-directory
@@ -112,7 +113,9 @@
       (newline out)
       (display "  (tests \"tests/main.scm\")" out)
       (newline out)
-      (display "  (benches \"benches/main.scm\"))" out)
+      (display "  (benches \"benches/main.scm\")" out)
+      (newline out)
+      (display "  (examples \"examples/main.scm\"))" out)
       (newline out)
       (newline out)
       (if lib?
@@ -218,6 +221,23 @@
       (display "        (newline))" out)
       (newline out)
       (display "      (loop (- n 1) (message))))" out)
+      (newline out))))
+
+	(define (write-new-example path name-parts)
+	  (call-with-output-file path
+	    (lambda (out)
+	      (display "(import (scheme base)" out)
+      (newline out)
+      (display "        (scheme write)" out)
+      (newline out)
+      (display "        " out)
+      (display-name-list name-parts out)
+      (display ")" out)
+      (newline out)
+      (newline out)
+      (display "(display (message))" out)
+      (newline out)
+      (display "(newline)" out)
       (newline out))))
 
 (define (write-new-gitignore path)
@@ -457,7 +477,9 @@
 	           (test-dir (path-join dir "tests"))
 	           (test-path (path-join test-dir "main.scm"))
 	           (bench-dir (path-join dir "benches"))
-	           (bench-path (path-join bench-dir "main.scm")))
+	           (bench-path (path-join bench-dir "main.scm"))
+	           (example-dir (path-join dir "examples"))
+	           (example-path (path-join example-dir "main.scm")))
 	      `((directory . ,dir)
 	        (name . ,name-parts)
 	        (source-directory . ,src-dir)
@@ -470,7 +492,9 @@
 	        (test-directory . ,test-dir)
 	        (test-path . ,test-path)
 	        (bench-directory . ,bench-dir)
-	        (bench-path . ,bench-path)))))
+	        (bench-path . ,bench-path)
+	        (example-directory . ,example-dir)
+	        (example-path . ,example-path)))))
 
 	(define (starter-spec-ref spec key)
 	  (alist-ref spec key #f))
@@ -486,14 +510,16 @@
 	       (starter-gitignore-file-path spec)
 	       (list (starter-spec-ref spec 'library-path)
 	             (starter-spec-ref spec 'test-path)
-	             (starter-spec-ref spec 'bench-path)))
+	             (starter-spec-ref spec 'bench-path)
+	             (starter-spec-ref spec 'example-path)))
 	      (append
 	       (list (starter-spec-ref spec 'manifest-path))
 	       (starter-gitignore-file-path spec)
 	       (list (starter-spec-ref spec 'library-path)
 	             (starter-spec-ref spec 'main-path)
 	             (starter-spec-ref spec 'test-path)
-	             (starter-spec-ref spec 'bench-path)))))
+	             (starter-spec-ref spec 'bench-path)
+	             (starter-spec-ref spec 'example-path)))))
 
 	(define (starter-plan command spec)
 	  `(,(string->symbol (string-append command "-plan"))
@@ -516,6 +542,7 @@
 	    (run-command (string-append "mkdir -p " (shell-quote (starter-spec-ref spec 'library-directory))))
 	    (run-command (string-append "mkdir -p " (shell-quote (starter-spec-ref spec 'test-directory))))
 	    (run-command (string-append "mkdir -p " (shell-quote (starter-spec-ref spec 'bench-directory))))
+	    (run-command (string-append "mkdir -p " (shell-quote (starter-spec-ref spec 'example-directory))))
 	    (write-new-manifest
 	     (starter-spec-ref spec 'manifest-path)
 	     name-parts
@@ -526,7 +553,8 @@
 	    (unless (eq? (starter-spec-ref spec 'kind) 'lib)
 	      (write-new-main (starter-spec-ref spec 'main-path) name-parts))
 	    (write-new-test (starter-spec-ref spec 'test-path) name-parts)
-	    (write-new-bench (starter-spec-ref spec 'bench-path) name-parts)))
+	    (write-new-bench (starter-spec-ref spec 'bench-path) name-parts)
+	    (write-new-example (starter-spec-ref spec 'example-path) name-parts)))
 
 
   ))

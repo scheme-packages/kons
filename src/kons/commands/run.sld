@@ -18,10 +18,12 @@
         (list 'option "bin"
           'help: "Binary target name."
           'value-help: "NAME")
+        (list 'option "example"
+          'help: "Example target name."
+          'value-help: "NAME")
         (list 'flag "workspace"
           'help: "Operate on workspace members.")
         (list 'flag "list"
           'help: "List available targets instead of running.")
         (list 'flag "plan"
           'help: "Print the planned action without executing."))))))
-

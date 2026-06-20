@@ -10,12 +10,14 @@
           selected-install-main-path
           package-test-files
           package-bench-files
+          package-example-files
           selected-files
           selected-test-files
           selected-bench-files
           selected-path-filters
           test-file-matches-filters?
           package-script-path
+          package-example-path
           selected-run-script
           run-targets-form
           test-targets-form
@@ -154,17 +156,54 @@
 	(define (package-test-files manifest)
 	  (let ((declared (package-tests manifest)))
 	    (if (null? declared)
-	        (collect-test-files (path-join (manifest-root manifest) "tests"))
+	        (let ((dir (path-join (manifest-root manifest) "tests")))
+	          (if (and (file-exists? dir) (file-directory? dir))
+	              (collect-test-files dir)
+	              '()))
 	        (map (lambda (path) (manifest-root-path manifest path)) declared))))
 
 	(define (package-bench-files manifest)
 	  (let ((declared (package-benches manifest)))
 	    (if (null? declared)
-	        (guard (exn
-	                ((error-object? exn) '())
-	                (else '()))
-	          (collect-scheme-files (path-join (manifest-root manifest) "benches") "benches"))
+	        (let ((dir (path-join (manifest-root manifest) "benches")))
+	          (if (and (file-exists? dir) (file-directory? dir))
+	              (collect-scheme-files dir "benches")
+	              '()))
 	        (map (lambda (path) (manifest-root-path manifest path)) declared))))
+
+	(define (path-last-segment path)
+	  (let ((parts (filter non-empty-string? (string-split path #\/))))
+	    (if (null? parts) path (car (reverse parts)))))
+
+	(define (path-without-scheme-extension path)
+	  (let ((file (path-last-segment path)))
+	    (cond
+	     ((string-suffix? ".scm" file)
+	      (substring file 0 (- (string-length file) 4)))
+	     ((string-suffix? ".sps" file)
+	      (substring file 0 (- (string-length file) 4)))
+	     ((string-suffix? ".sld" file)
+	      (substring file 0 (- (string-length file) 4)))
+	     ((string-suffix? ".sls" file)
+	      (substring file 0 (- (string-length file) 4)))
+	     (else file))))
+
+	(define (discovered-example-files manifest)
+	  (let ((dir (path-join (manifest-root manifest) "examples")))
+	    (if (and (file-exists? dir) (file-directory? dir))
+	        (map (lambda (path)
+	               (cons (string->symbol (path-without-scheme-extension path)) path))
+	             (collect-scheme-files dir "examples"))
+	        '())))
+
+	(define (package-example-files manifest)
+	  (let ((declared (package-examples manifest)))
+	    (if (null? declared)
+	        (discovered-example-files manifest)
+	        (map (lambda (example)
+	               (cons (car example)
+	                     (manifest-root-path manifest (cdr example))))
+	             declared))))
 
 	(define (selected-files manifest cmd command file-provider label no-match-message)
 	  (let* ((dir (command-option cmd "directory" #f))
@@ -201,11 +240,19 @@
   (let ((found (assoc name (package-scripts manifest))))
     (and found (manifest-root-path manifest (cdr found)))))
 
+(define (package-example-path manifest name)
+  (let ((found (assoc name (package-example-files manifest))))
+    (and found (cdr found))))
+
 		(define (selected-run-script manifest cmd)
 		  (let ((script-name (command-option cmd "script" #f))
-		        (bin-name (command-option cmd "bin" #f)))
-	    (when (and script-name bin-name)
-	      (usage-error "choose either --script or --bin"))
+		        (bin-name (command-option cmd "bin" #f))
+		        (example-name (command-option cmd "example" #f)))
+	    (when (> (+ (if script-name 1 0)
+	                (if bin-name 1 0)
+	                (if example-name 1 0))
+	             1)
+	      (usage-error "choose only one of --script, --bin, or --example"))
 	    (cond
 	     (script-name
 	      (let ((path (package-script-path manifest (string->symbol script-name))))
@@ -214,10 +261,15 @@
 	        path))
 	     (bin-name
 	      (selected-bin-script manifest bin-name))
+	     (example-name
+	      (let ((path (package-example-path manifest (string->symbol example-name))))
+	        (unless path
+	          (manifest-error "example target not found" example-name))
+	        path))
 	     ((package-main-path manifest) (package-main-path manifest))
 	     (else
 	      (usage-error
-	       "package has no default run target; add (main \"...\") or use --bin/--script")))))
+	       "package has no default run target; add (main \"...\") or use --bin/--script/--example")))))
 
 	(define (run-targets-form manifest)
 	  (append
@@ -235,7 +287,11 @@
 	     (bins
 	      ,@(map (lambda (bin)
 	               `(,(car bin) ,(manifest-source-path manifest (cdr bin))))
-	             (package-bins manifest))))))
+	             (package-bins manifest)))
+	     (examples
+	      ,@(map (lambda (example)
+	               `(,(car example) ,(cdr example)))
+	             (package-example-files manifest))))))
 
 	(define (test-targets-form manifest cmd features)
 	  `(test-targets
@@ -260,6 +316,10 @@
    (lambda (path)
      (validate-file-exists "benchmark script" path))
    (package-bench-files manifest))
+  (for-each
+   (lambda (example)
+     (validate-file-exists "example script" (cdr example)))
+   (package-example-files manifest))
   (for-each
    (lambda (script)
      (validate-file-exists
