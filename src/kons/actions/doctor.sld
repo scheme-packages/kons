@@ -22,7 +22,16 @@
            (scheme-report 'gauche "gosh" (eq? scheme 'gauche))
            (scheme-report 'guile "guile" (eq? scheme 'guile))
            (scheme-report 'chibi "chibi-scheme" (eq? scheme 'chibi))
-           (scheme-report 'chez "chez" (eq? scheme 'chez))))
+           (scheme-report 'chez "scheme" (eq? scheme 'chez))
+           (scheme-report 'mit "scheme" (eq? scheme 'mit))
+           (scheme-report 'sagittarius "sash" (eq? scheme 'sagittarius))
+           (scheme-report 'mosh "mosh" (eq? scheme 'mosh))
+           (scheme-report 'stklos "stklos" (eq? scheme 'stklos))
+           (scheme-report 'kawa "kawa" (eq? scheme 'kawa))
+           (scheme-report 'loko "loko" (eq? scheme 'loko))
+           (scheme-report 'ironscheme "ironscheme" (eq? scheme 'ironscheme))
+           (scheme-report 'skint "skint" (eq? scheme 'skint))
+           (scheme-report 'cyclone "cyclone" (eq? scheme 'cyclone))))
          (tools
           (list
            (command-report 'git "git" "git dependencies" #t)))

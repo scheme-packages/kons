@@ -250,7 +250,9 @@
 (define (write-library-import-check-script path library-name)
   (call-with-output-file path
     (lambda (out)
-      (write `(import ,library-name) out)
+      (write `(import (scheme base) ,library-name) out)
+      (newline out)
+      (write '(define kons-library-probe #t) out)
       (newline out))))
 
 (define (scheme-implementation-library-available? scheme library-name)

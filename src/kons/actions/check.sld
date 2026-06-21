@@ -24,6 +24,7 @@
     (ensure-supported-active-features manifest features cmd)
     (unless (command-flag? cmd "plan")
       (begin
+        (implementation-probe (adapter-scheme manifest (command-selected-scheme cmd)))
         (ensure-dev-activation-ready! manifest features cmd)
         (ensure-implementation-compiled! manifest features cmd)))
     (let ((srcs (activation-source-roots-with-build manifest #t features cmd)))

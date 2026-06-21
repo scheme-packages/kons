@@ -21,6 +21,13 @@
                      (system chibi-system))
              (rename (chibi io)
                      (read-line chibi-read-line))))
+    (cyclone
+     (import (scheme base)
+             (scheme cyclone primitives)))
+    (mit
+     (import (scheme base)
+             (only (mit legacy runtime)
+                   run-shell-command)))
     (else
      (import (scheme base))))
 
@@ -36,12 +43,26 @@
            (cadr result))
           (else 1)))
 
-       (define (system command)
-         (cond-expand
-           (gauche (process-status (gauche-system command)))
-           (guile (process-status (guile-system command)))
-           (chibi (process-status (chibi-system "/bin/sh" "-c" command)))
-           (else 1)))
+       (cond-expand
+         (cyclone (begin))
+         (else
+          (define (system command)
+            (cond-expand
+              (gauche (process-status (gauche-system command)))
+              (guile (process-status (guile-system command)))
+              (chibi (process-status (chibi-system "/bin/sh" "-c" command)))
+              (mit (process-status (run-shell-command command)))
+              (else 1)))))
+
+       (define (portable-read-line port)
+         (let loop ((chars '()))
+           (let ((ch (read-char port)))
+             (cond
+              ((eof-object? ch)
+               (if (null? chars) ch (list->string (reverse chars))))
+              ((char=? ch #\newline)
+               (list->string (reverse chars)))
+              (else (loop (cons ch chars)))))))
 
        (define (read-line . maybe-port)
          (cond-expand
@@ -57,4 +78,8 @@
             (if (null? maybe-port)
                 (chibi-read-line)
                 (chibi-read-line (car maybe-port))))
-           (else (read (open-input-string "")))))))))
+           (else
+            (portable-read-line
+             (if (null? maybe-port)
+                 (current-input-port)
+                 (car maybe-port))))))))))

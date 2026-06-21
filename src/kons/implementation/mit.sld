@@ -1,0 +1,21 @@
+(define-library (kons implementation mit)
+  (export mit-implementation-modes)
+  (import (scheme base))
+
+  (begin
+(define mit-implementation-modes
+  '(((id . mit)
+     (implementation . mit)
+     (command . "scheme")
+     (version-argv . ("--version"))
+     (version-contains . "MIT/GNU Scheme")
+     (dialects . (r7rs mit))
+     (standard . r7rs)
+     (standard-argv . ("--batch-mode" "--quiet"))
+     (features . (mit mit-scheme r7rs))
+     (load-path-style . none)
+     (runtime-command-style . mit-library-run)
+     (script-flag . "--load")
+     (script-separator . "--")
+     (compile-kinds . ()))))
+  ))

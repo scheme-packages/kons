@@ -257,7 +257,7 @@ Hook properties:
 | Property | Meaning |
 | --- | --- |
 | `(rerun-on-change PATH ...)` | Run again when these files change. |
-| `(scheme-impl IMPL)` | Run this hook with `capy`, `guile`, `gauche`, `chibi`, or `chez`. |
+| `(scheme-impl IMPL)` | Run this hook with `capy`, `guile`, `gauche`, `chibi`, `chez`, `sagittarius`, `stklos`, `kawa`, `loko`, `skint`, `cyclone`, `mit`, `mosh`, or `ironscheme`. |
 
 If `build.scm` exists and no `build-hooks` field exists, kons runs it.
 

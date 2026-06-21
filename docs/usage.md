@@ -31,8 +31,12 @@ You can also use `--scheme` on one command:
 kons --scheme gosh test
 ```
 
-Supported Scheme names are `capy`, `guile`, `gauche`/`gosh`,
-`chibi`/`chibi-scheme`, and `chez`/`chezscheme`.
+The `kons` manager can run under `capy`, `guile`, `gauche`/`gosh`, and
+`chibi`/`chibi-scheme`.
+
+Target package runtimes also include `chez`/`chezscheme`, `sagittarius`/`sash`,
+`stklos`, `kawa`, `loko`, `skint`, `cyclone`, `mit`, `mosh`, and `ironscheme`
+when the package dialect matches the implementation.
 
 ## Create a project
 

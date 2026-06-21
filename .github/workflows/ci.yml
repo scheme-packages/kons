@@ -1,0 +1,171 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run implementation tests
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            schemers/gauche \
+            sh -lc '
+              set -eu
+              gosh -r7 -I vendor/scm-args/src -I src tests/implementation.scm
+            '
+
+  manager-install:
+    name: manager install (${{ matrix.scheme }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: gauche
+            image: schemers/gauche
+          - scheme: guile
+            image: schemers/guile
+          - scheme: chibi
+            image: schemers/chibi
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify install and launcher
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "${{ matrix.image }}" \
+            sh -lc '
+              set -eu
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends make git ca-certificates >/dev/null
+              make ci-manager-install KONS_SCHEME="${{ matrix.scheme }}"
+            '
+
+  runtime-r7rs:
+    name: r7rs runtime (${{ matrix.scheme }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: gauche
+            image: schemers/gauche
+            manager: gauche
+          - scheme: guile
+            image: schemers/guile
+            manager: guile
+          - scheme: chibi
+            image: schemers/chibi
+            manager: chibi
+          - scheme: sagittarius
+            image: schemers/sagittarius
+            manager: gauche
+          - scheme: stklos
+            image: schemers/stklos
+            manager: gauche
+          - scheme: kawa
+            image: schemers/kawa
+            manager: gauche
+          - scheme: loko
+            image: schemers/loko
+            manager: gauche
+          - scheme: skint
+            image: schemers/skint
+            manager: gauche
+          - scheme: cyclone
+            image: schemers/cyclone
+            manager: gauche
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify generated R7RS project
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "${{ matrix.image }}" \
+            sh -lc '
+              set -eu
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null
+              make ci-runtime-r7rs KONS_SCHEME="${{ matrix.manager }}" KONS_RUNTIME_SCHEME="${{ matrix.scheme }}"
+            '
+
+  runtime-r6rs:
+    name: r6rs runtime (${{ matrix.scheme }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: chez
+            image: schemers/chezscheme
+          - scheme: mosh
+            image: schemers/mosh
+          - scheme: ironscheme
+            image: schemers/ironscheme
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify R6RS project
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "${{ matrix.image }}" \
+            sh -lc '
+              set -eu
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null
+              make ci-runtime-r6rs KONS_SCHEME=gauche KONS_RUNTIME_SCHEME="${{ matrix.scheme }}"
+            '
+
+  registry:
+    name: registry
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test registry
+        run: |
+          docker run --rm \
+            -v "$PWD/registry:/work" \
+            -w /work \
+            node:26-bookworm-slim \
+            sh -lc 'set -eu; npm ci; npm test; npm run check'
+
+      - name: Build registry image
+        run: docker build -t kons-registry:ci registry

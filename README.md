@@ -61,8 +61,12 @@ Or set a default:
 export KONS_SCHEME=guile
 ```
 
-Supported names are `capy`, `guile`, `gauche`/`gosh`, `chibi`/`chibi-scheme`,
-and `chez`/`chezscheme`.
+`kons` can run the package manager itself with `capy`, `guile`,
+`gauche`/`gosh`, and `chibi`/`chibi-scheme`.
+
+Target package runtimes also include `chez`/`chezscheme`, `sagittarius`/`sash`,
+`stklos`, `kawa`, `loko`, `skint`, `cyclone`, `mit`, `mosh`, and `ironscheme`
+when the package dialect matches the implementation.
 
 ## Add dependencies
 

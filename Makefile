@@ -2,12 +2,15 @@ CAPY ?= capy
 GAUCHE ?= gosh
 GUILE ?= guile
 CHIBI ?= chibi-scheme
-CHEZ ?= chez
+CHEZ ?= scheme
+PODMAN ?= podman
 PREFIX ?= $(HOME)/.kons
 KONS_HOME ?= $(PREFIX)
 bindir ?= $(KONS_HOME)/bin
 libdir ?= $(KONS_HOME)/lib
 KONS_SCHEME ?= capy
+KONS_RUNTIME_SCHEME ?= $(KONS_SCHEME)
+KONS_MANAGER_SCHEME ?= gauche
 KONS_TEST_HOME ?= /tmp/kons-test-home
 KONS_TEST_CACHE_HOME ?= /tmp/kons-capy-cache
 KONS_BIN = ./bin/kons
@@ -17,7 +20,7 @@ ABS_KONS = $(TEST_ENV) $(abspath $(KONS_BIN))
 RUN_TEST = $(TEST_ENV) $(CAPY) -L $(ARGS_SRCDIR),src -s
 ARGS_SRCDIR = vendor/scm-args/src
 VENDOR_SUBMODULE = vendor/scm-args
-.PHONY: check check-all check-required clean-test-cache unit-tests integration-tests self-verify verify verify-capy install uninstall install-verify install-script-verify clean
+.PHONY: check check-all check-required clean-test-cache unit-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
 
 check: unit-tests verify-capy install-verify install-script-verify
 
@@ -28,6 +31,62 @@ clean-test-cache:
 
 unit-tests: clean-test-cache
 	$(RUN_TEST) tests/jobs.scm
+	$(RUN_TEST) tests/implementation.scm
+
+ci-unit: unit-tests
+
+ci-manager-install: install-verify install-script-verify
+
+ci-runtime-r7rs:
+	rm -rf /tmp/kons-ci-r7rs
+	$(KONS) new --directory /tmp/kons-ci-r7rs --name generated/ci-r7rs >/tmp/kons-ci-r7rs-new.out
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r7rs/kons.scm run
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r7rs/kons.scm test
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r7rs/kons.scm bench >/tmp/kons-ci-r7rs-bench.out
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r7rs/kons.scm check
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r7rs/kons.scm build
+
+ci-runtime-r6rs:
+	rm -rf /tmp/kons-ci-r6rs
+	mkdir -p /tmp/kons-ci-r6rs/src/generated /tmp/kons-ci-r6rs/tests
+	printf '%s\n' '(package' '  (name (generated r6rs))' '  (version "0.1.0")' '  (license "MIT")' '  (description "R6RS runtime verification")' '  (dialects r6rs)' '  (source-path "src")' '  (main "main.sps")' '  (tests "tests/main.sps"))' >/tmp/kons-ci-r6rs/kons.scm
+	printf '%s\n' '#!r6rs' '(library (generated r6rs)' '  (export runtime-message test-message)' '  (import (rnrs))' '  (define (runtime-message) "r6rs run verified")' '  (define (test-message) "r6rs test verified"))' >/tmp/kons-ci-r6rs/src/generated/r6rs.sls
+	printf '%s\n' '#!r6rs' '(import (rnrs) (generated r6rs))' '(display (runtime-message))' '(newline)' >/tmp/kons-ci-r6rs/src/main.sps
+	printf '%s\n' '#!r6rs' '(import (rnrs) (generated r6rs))' '(display (test-message))' '(newline)' >/tmp/kons-ci-r6rs/tests/main.sps
+	$(KONS) --manifest /tmp/kons-ci-r6rs/kons.scm metadata >/tmp/kons-ci-r6rs-metadata.out
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r6rs/kons.scm run
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r6rs/kons.scm test
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r6rs/kons.scm check
+	$(KONS) --scheme $(KONS_RUNTIME_SCHEME) --manifest /tmp/kons-ci-r6rs/kons.scm build
+
+podman-runtime-sagittarius:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/sagittarius sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=sagittarius'
+
+podman-runtime-stklos:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/stklos sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=stklos'
+
+podman-runtime-kawa:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/kawa sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=kawa'
+
+podman-runtime-loko:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/loko sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=loko'
+
+podman-runtime-skint:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/skint sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=skint'
+
+podman-runtime-cyclone:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/cyclone sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r7rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=cyclone'
+
+podman-runtime-mosh:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/mosh sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r6rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=mosh'
+
+podman-runtime-chez:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/chezscheme sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r6rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=chez'
+
+podman-runtime-ironscheme:
+	$(PODMAN) run --rm -v "$(CURDIR):/work:Z" -w /work schemers/ironscheme sh -lc 'set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update >/dev/null; apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null; KONS_NO_COLOR=1 make ci-runtime-r6rs KONS_SCHEME=$(KONS_MANAGER_SCHEME) KONS_RUNTIME_SCHEME=ironscheme'
+
+ci-podman-local: podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme
 
 integration-tests:
 	@echo "integration suite removed"
@@ -112,10 +171,10 @@ install-verify:
 
 install-script-verify:
 	rm -rf /tmp/kons-install-script-root
-	KONS_SOURCE="$(CURDIR)" ./install.sh --prefix /tmp/kons-install-script-root --scheme guile --non-interactive >/tmp/kons-install-script.out
+	KONS_SOURCE="$(CURDIR)" ./install.sh --prefix /tmp/kons-install-script-root --scheme $(KONS_SCHEME) --non-interactive >/tmp/kons-install-script.out
 	test -s /tmp/kons-install-script-root/env
 	test -s /tmp/kons-install-script-root/env.fish
-	grep 'KONS_SCHEME="guile"' /tmp/kons-install-script-root/env >/dev/null
+	grep 'KONS_SCHEME="$(KONS_SCHEME)"' /tmp/kons-install-script-root/env >/dev/null
 	./install.sh --dry-run --source "$(CURDIR)" --prefix /tmp/kons-install-dry --scheme chibi --non-interactive >/tmp/kons-install-script-dry-run.out
 	grep '+ mkdir -p ' /tmp/kons-install-script-dry-run.out >/dev/null
 	test ! -e /tmp/kons-install-dry

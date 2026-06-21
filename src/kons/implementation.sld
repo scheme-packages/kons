@@ -22,6 +22,15 @@
           (kons implementation chibi)
           (kons implementation guile)
           (kons implementation chez)
+          (kons implementation mit)
+          (kons implementation sagittarius)
+          (kons implementation mosh)
+          (kons implementation stklos)
+          (kons implementation kawa)
+          (kons implementation loko)
+          (kons implementation ironscheme)
+          (kons implementation skint)
+          (kons implementation cyclone)
           (kons util))
 
   (begin
@@ -30,7 +39,16 @@
           gauche-implementation-modes
           chibi-implementation-modes
           guile-implementation-modes
-          chez-implementation-modes))
+          chez-implementation-modes
+          mit-implementation-modes
+          sagittarius-implementation-modes
+          mosh-implementation-modes
+          stklos-implementation-modes
+          kawa-implementation-modes
+          loko-implementation-modes
+          ironscheme-implementation-modes
+          skint-implementation-modes
+          cyclone-implementation-modes))
 
 (define (mode-ref mode key default)
   (let ((field (assq key mode)))
@@ -103,6 +121,9 @@
 (define (path-list-env paths)
   (join-strings paths ":"))
 
+(define (append-suffix suffix value)
+  (string-append value suffix))
+
 (define (prepend-source-roots src)
   (if (null? src) '() (list (car src))))
 
@@ -140,14 +161,27 @@
         (if (null? prepend) '() (list "-L" (join-strings prepend ",")))
         (if (null? append-paths) '() (list "-A" (join-strings append-paths ",")))))
       ((prepend-append)
-       (append (path-option-argv "-I" prepend)
-               (path-option-argv "-A" append-paths)))
+       (append
+        (path-option-argv
+         (implementation-mode-field mode 'load-path-flag "-I")
+         prepend)
+        (path-option-argv
+         (implementation-mode-field mode 'append-load-path-flag "-A")
+         append-paths)))
       ((repeat-all)
        (path-option-argv
         (implementation-mode-field mode 'load-path-flag "-L")
         src))
       ((chez-libdirs)
        (if (null? src) '() (list "--libdirs" (path-list-env src))))
+      ((kawa-import-path)
+       (if (null? src)
+           '()
+           (list (string-append "-Dkawa.import.path="
+                                (path-list-env
+                                 (map (lambda (path)
+                                        (append-suffix "/*.sld" path))
+                                      src))))))
       (else '()))))
 
 (define (env-load-paths scope src prepend append-paths)
@@ -176,17 +210,92 @@
             (if separator (list separator) '())
             rest)))
 
+(define (cyclone-compile-run-script load-argv)
+  (let ((compile-command
+         (join-strings
+          (append
+           (list "cyclone")
+           (map shell-quote load-argv)
+           (list "-o" "main" "main.scm"))
+          " ")))
+    (string-append
+     "script=$1; shift; "
+     "tmp=${TMPDIR:-/tmp}/kons_cyclone_$$; "
+     "mkdir -p \"$tmp\"; "
+     "trap 'rm -rf \"$tmp\"' 0 1 2 15; "
+     "cp \"$script\" \"$tmp/main.scm\"; "
+     "(cd \"$tmp\" && "
+     compile-command
+     ") && \"$tmp/main\" \"$@\"")))
+
+(define (cyclone-compile-run-argv mode src script rest)
+  (let* ((prepend (prepend-source-roots src))
+         (append-paths (append-source-roots src))
+         (load-argv (runtime-load-path-argv mode src prepend append-paths)))
+    (append
+     (list "sh" "-c" (cyclone-compile-run-script load-argv) "kons-cyclone" script)
+     rest)))
+
+(define (scheme-string-char ch out)
+  (cond
+   ((char=? ch #\\) (cons #\\ (cons #\\ out)))
+   ((char=? ch #\") (cons #\" (cons #\\ out)))
+   (else (cons ch out))))
+
+(define (scheme-string value)
+  (let loop ((i 0) (out (list #\")))
+    (if (< i (string-length value))
+        (loop (+ i 1) (scheme-string-char (string-ref value i) out))
+        (list->string (reverse (cons #\" out))))))
+
+(define (mit-register-command source)
+  (string-append
+   "if [ -d " (shell-quote source) " ]; then "
+   "printf '%s\n' "
+   (shell-quote
+    (string-append
+     "(parameterize ((param:hide-notifications? #t)) "
+     "(find-scheme-libraries! (pathname-as-directory "
+     (scheme-string source)
+     ")))"))
+   " >> \"$prelude\"; "
+   "fi; "))
+
+(define (mit-library-run-script mode src)
+  (string-append
+   "script=$1; shift; "
+   "tmp=${TMPDIR:-/tmp}/kons_mit_$$; "
+   "prelude=\"$tmp/prelude.scm\"; "
+   "mkdir -p \"$tmp\"; "
+   ": > \"$prelude\"; "
+   "trap 'rm -rf \"$tmp\"' 0 1 2 15; "
+   (join-strings (map mit-register-command src) "")
+   "exec "
+   (shell-quote (implementation-mode-command mode))
+   " --batch-mode --quiet --load \"$prelude\" --load \"$script\" -- \"$@\""))
+
+(define (mit-library-run-argv mode src script rest)
+  (append
+   (list "sh" "-c" (mit-library-run-script mode src) "kons-mit" script)
+   rest))
+
 (define (runtime-command-argv mode src script rest runtime-mode compiled-roots profile)
   (let ((prepend (prepend-source-roots src))
         (append-paths (append-source-roots src)))
-    (append
-     (list (implementation-mode-command mode))
-     (debug-argv mode profile)
-     (implementation-mode-field mode 'standard-argv '())
-     (fresh-auto-argv mode runtime-mode)
-     (runtime-load-path-argv mode src prepend append-paths)
-     (compiled-load-path-argv mode runtime-mode compiled-roots)
-     (script-argv mode script rest))))
+    (case (implementation-mode-field mode 'runtime-command-style 'direct)
+      ((cyclone-compile-run)
+       (cyclone-compile-run-argv mode src script rest))
+      ((mit-library-run)
+       (mit-library-run-argv mode src script rest))
+      (else
+       (append
+        (list (implementation-mode-command mode))
+        (debug-argv mode profile)
+        (implementation-mode-field mode 'standard-argv '())
+        (fresh-auto-argv mode runtime-mode)
+        (runtime-load-path-argv mode src prepend append-paths)
+        (compiled-load-path-argv mode runtime-mode compiled-roots)
+        (script-argv mode script rest))))))
 
 (define (runtime-repl-argv mode src runtime-mode compiled-roots profile)
   (let ((prepend (prepend-source-roots src))
@@ -292,17 +401,38 @@
                        " 2>&1 | head -1")
         #f)))
 
+(define (implementation-version-output mode command)
+  (let ((version-argv (implementation-mode-field mode 'version-argv '())))
+    (and (not (null? version-argv))
+         (capture-first-line
+          (string-append
+           "( timeout 2s "
+           (shell-quote command)
+           " "
+           (join-strings (map shell-quote version-argv) " ")
+           " || true ) 2>&1")))))
+
+(define (ensure-implementation-version! scheme mode command version)
+  (let ((required (implementation-mode-field mode 'version-contains #f)))
+    (when (and required
+               (not (and version (string-contains? version required))))
+      (dependency-error "selected Scheme implementation command did not match expected implementation"
+                        scheme
+                        command
+                        required
+                        (if version version "unknown")))))
+
 (define (implementation-probe scheme)
   (let* ((command (implementation-command scheme))
-         (version-command (implementation-version-command scheme command)))
+         (mode (implementation-mode scheme)))
     (unless (= (shell-command-status
                 (string-append "command -v " (shell-quote command) " >/dev/null 2>&1"))
                0)
       (dependency-error "selected Scheme implementation is not available on PATH" scheme command))
-    `(implementation
-      (name ,scheme)
-      (command ,command)
-      (version ,(if version-command
-                    (capture-first-line version-command)
-                    "unknown")))))
+    (let ((version (and mode (implementation-version-output mode command))))
+      (ensure-implementation-version! scheme mode command version)
+      `(implementation
+        (name ,scheme)
+        (command ,command)
+        (version ,(if version version "unknown"))))))
   ))

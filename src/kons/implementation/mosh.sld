@@ -1,0 +1,20 @@
+(define-library (kons implementation mosh)
+  (export mosh-implementation-modes)
+  (import (scheme base))
+
+  (begin
+(define mosh-implementation-modes
+  '(((id . mosh)
+     (implementation . mosh)
+     (command . "mosh")
+     (version-argv . ("-V"))
+     (dialects . (r6rs))
+     (standard . r6rs)
+     (standard-argv . ("--disable-acc"))
+     (features . (mosh r6rs))
+     (load-path-style . repeat-all)
+     (load-path-flag . "--loadpath")
+     (env-load-path . "MOSH_LOADPATH")
+     (env-load-path-scope . all)
+     (compile-kinds . ()))))
+  ))

@@ -368,7 +368,9 @@
 (define (write-system-check-script path library-name)
   (call-with-output-file path
     (lambda (out)
-      (write `(import ,(library-name-form library-name)) out)
+      (write `(import (scheme base) ,(library-name-form library-name)) out)
+      (newline out)
+      (write '(define kons-system-check #t) out)
       (newline out))))
 
 (define (check-system-library scheme srcs library-name)

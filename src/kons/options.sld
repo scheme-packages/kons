@@ -51,7 +51,7 @@
   (option "scheme"
     'help: "Scheme implementation to use."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "features"
     'help: "Comma-separated feature names to enable."
     'value-help: "NAMES")
@@ -69,7 +69,7 @@
   (option "hook-scheme"
     'help: "Scheme implementation for build hooks (overridden by per-hook scheme-impl)."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "log-level"
     'help: "Log level."
     'value-help: "LEVEL"
@@ -118,7 +118,7 @@
   (option "scheme"
     'help: "Scheme implementation to use."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "features"
     'help: "Comma-separated feature names to enable."
     'value-help: "NAMES")
@@ -136,7 +136,7 @@
   (option "hook-scheme"
     'help: "Scheme implementation for build hooks (overridden by per-hook scheme-impl)."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "log-level"
     'help: "Log level."
     'value-help: "LEVEL"
@@ -230,7 +230,7 @@
   (option "scheme"
     'help: "Scheme implementation to use."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "features"
     'help: "Comma-separated feature names to enable."
     'value-help: "NAMES")
@@ -248,7 +248,7 @@
   (option "hook-scheme"
     'help: "Scheme implementation for build hooks (overridden by per-hook scheme-impl)."
     'value-help: "NAME"
-    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme"))
+    'allowed: '("capy" "gauche" "gosh" "chibi" "chibi-scheme" "guile" "chez" "chezscheme" "sagittarius" "sash" "mosh" "stklos" "kawa" "loko" "ironscheme" "skint" "cyclone" "mit"))
   (option "log-level"
     'help: "Log level."
     'value-help: "LEVEL"
@@ -429,6 +429,15 @@
    ((or (string=? value "chibi") (string=? value "chibi-scheme")) 'chibi)
    ((string=? value "guile") 'guile)
    ((or (string=? value "chez") (string=? value "chezscheme")) 'chez)
+   ((or (string=? value "sagittarius") (string=? value "sash")) 'sagittarius)
+   ((string=? value "mosh") 'mosh)
+   ((string=? value "stklos") 'stklos)
+   ((string=? value "kawa") 'kawa)
+   ((string=? value "loko") 'loko)
+   ((string=? value "ironscheme") 'ironscheme)
+   ((string=? value "skint") 'skint)
+   ((string=? value "cyclone") 'cyclone)
+   ((string=? value "mit") 'mit)
    (else (usage-error "unknown scheme" value))))
 
 (define (command-selected-scheme cmd)

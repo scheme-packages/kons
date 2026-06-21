@@ -49,6 +49,7 @@
           filter
           append-map
           string-split
+          string-contains?
           non-empty-string?
           dedupe-symbols
           ensure-known-fields)
