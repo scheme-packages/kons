@@ -14,7 +14,7 @@ make install
 Or install from the script:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/scheme-packages/kons/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/scheme-packages/kons/master/install.sh | sh
 ```
 
 Then load the environment file in your shell:

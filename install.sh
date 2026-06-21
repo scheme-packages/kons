@@ -4,7 +4,7 @@ set -eu
 KONS_HOME=${KONS_HOME:-${PREFIX:-"$HOME/.kons"}}
 PREFIX=${PREFIX:-"$KONS_HOME"}
 KONS_REPO=${KONS_REPO:-"https://github.com/scheme-packages/kons"}
-KONS_REF=${KONS_REF:-"main"}
+KONS_REF=${KONS_REF:-"master"}
 KONS_TARBALL_URL=${KONS_TARBALL_URL:-"$KONS_REPO/archive/$KONS_REF.tar.gz"}
 KONS_SOURCE=${KONS_SOURCE:-""}
 KONS_DEFAULT_SCHEME=${KONS_DEFAULT_SCHEME:-""}
