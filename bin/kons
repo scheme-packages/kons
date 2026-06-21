@@ -23,23 +23,44 @@ fi
 scheme=${KONS_SCHEME:-${SCHEME:-capy}}
 main=$LIBDIR/kons/main.scm
 ARGS_SRCDIR=
+CONDUIT_SRCDIR=
+LOAD_PATH=
 if [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR/scm-args/src" ]; then
   ARGS_SRCDIR=$VENDORDIR/scm-args/src
 elif [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR" ]; then
   ARGS_SRCDIR=$VENDORDIR
 fi
+if [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR/conduit/src" ]; then
+  CONDUIT_SRCDIR=$VENDORDIR/conduit/src
+fi
+
+add_load_path() {
+  if [ -n "$1" ]; then
+    if [ -n "$LOAD_PATH" ]; then
+      LOAD_PATH=$LOAD_PATH,$1
+    else
+      LOAD_PATH=$1
+    fi
+  fi
+}
+
+add_load_path "$ARGS_SRCDIR"
+add_load_path "$CONDUIT_SRCDIR"
+add_load_path "$LIBDIR"
 
 case "$scheme" in
   capy)
-    if [ -n "$ARGS_SRCDIR" ]; then
-      exec capy -L "$ARGS_SRCDIR,$LIBDIR" -s "$main" -- "$@"
-    else
-      exec capy -L "$LIBDIR" -s "$main" -- "$@"
-    fi
+    exec capy -L "$LOAD_PATH" -s "$main" -- "$@"
     ;;
   gauche|gosh)
     if [ -n "$ARGS_SRCDIR" ]; then
-      exec gosh -r7 -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      if [ -n "$CONDUIT_SRCDIR" ]; then
+        exec gosh -r7 -I "$ARGS_SRCDIR" -I "$CONDUIT_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      else
+        exec gosh -r7 -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      fi
+    elif [ -n "$CONDUIT_SRCDIR" ]; then
+      exec gosh -r7 -I "$CONDUIT_SRCDIR" -I "$LIBDIR" "$main" "$@"
     else
       exec gosh -r7 -I "$LIBDIR" "$main" "$@"
     fi
@@ -48,14 +69,26 @@ case "$scheme" in
     GUILE_AUTO_COMPILE=${GUILE_AUTO_COMPILE:-0}
     export GUILE_AUTO_COMPILE
     if [ -n "$ARGS_SRCDIR" ]; then
-      exec guile --r7rs -L "$ARGS_SRCDIR" -L "$LIBDIR" "$main" "$@"
+      if [ -n "$CONDUIT_SRCDIR" ]; then
+        exec guile --r7rs -L "$ARGS_SRCDIR" -L "$CONDUIT_SRCDIR" -L "$LIBDIR" "$main" "$@"
+      else
+        exec guile --r7rs -L "$ARGS_SRCDIR" -L "$LIBDIR" "$main" "$@"
+      fi
+    elif [ -n "$CONDUIT_SRCDIR" ]; then
+      exec guile --r7rs -L "$CONDUIT_SRCDIR" -L "$LIBDIR" "$main" "$@"
     else
       exec guile --r7rs -L "$LIBDIR" "$main" "$@"
     fi
     ;;
   chibi|chibi-scheme)
     if [ -n "$ARGS_SRCDIR" ]; then
-      exec chibi-scheme -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      if [ -n "$CONDUIT_SRCDIR" ]; then
+        exec chibi-scheme -I "$ARGS_SRCDIR" -I "$CONDUIT_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      else
+        exec chibi-scheme -I "$ARGS_SRCDIR" -I "$LIBDIR" "$main" "$@"
+      fi
+    elif [ -n "$CONDUIT_SRCDIR" ]; then
+      exec chibi-scheme -I "$CONDUIT_SRCDIR" -I "$LIBDIR" "$main" "$@"
     else
       exec chibi-scheme -I "$LIBDIR" "$main" "$@"
     fi

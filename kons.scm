@@ -7,9 +7,12 @@
   (source-path "src"))
 
 (dependencies
-  (git 
+  (registry
+    (name (conduit))
+    (version "^0.1"))
+  (registry
     (name (args))
-    (url "https://github.com/playx18/scm-args.git")))
+    (version "^0.1")))
 
 (dev-dependencies)
 

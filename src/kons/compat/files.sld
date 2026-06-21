@@ -2,6 +2,7 @@
   (export current-directory
           file-directory?
           directory-list)
+  (import (conduit))
   (cond-expand
     (capy
      (import (scheme base)
@@ -34,8 +35,7 @@
                      (directory-files chibi-directory-list))))
     (cyclone
      (import (scheme base)
-             (scheme file)
-             (kons compat process)))
+             (scheme file)))
     (mit
      (import (scheme base)
              (scheme file)
@@ -85,26 +85,25 @@
   (when (file-exists? path)
     (delete-file path)))
 
+(define (string-lines text)
+  (let ((len (string-length text)))
+    (let loop ((i 0) (start 0) (out '()))
+      (cond
+       ((= i len)
+        (reverse
+         (if (= start len)
+             out
+             (cons (substring text start len) out))))
+       ((char=? (string-ref text i) #\newline)
+        (loop (+ i 1) (+ i 1) (cons (substring text start i) out)))
+       (else (loop (+ i 1) start out))))))
+
 (define (capture-first-line cmd)
-  (let ((tmp (next-temporary-path "kons-cyclone-line")))
-    (system (string-append cmd " > " (shell-quote tmp)))
-    (let ((line (call-with-input-file tmp read-line)))
-      (delete-file-if-exists tmp)
-      line)))
+  (let ((lines (string-lines (process-output->string cmd))))
+    (if (null? lines) "" (car lines))))
 
 (define (capture-lines cmd)
-  (let ((tmp (next-temporary-path "kons-cyclone-lines")))
-    (system (string-append cmd " > " (shell-quote tmp)))
-    (let ((lines
-           (call-with-input-file
-            tmp
-            (lambda (in)
-              (let loop ((line (read-line in)) (out '()))
-                (if (eof-object? line)
-                    (reverse out)
-                    (loop (read-line in) (cons line out))))))))
-      (delete-file-if-exists tmp)
-      lines)))
+  (string-lines (process-output->string cmd)))
 
 (define (current-directory)
   (cond-expand
@@ -123,7 +122,7 @@
          (gauche (gauche-file-directory? path))
          (guile (guile-file-directory? path))
          (chibi (chibi-file-directory? path))
-         (cyclone (= (system (string-append "test -d " (shell-quote path))) 0))
+         (cyclone (= (shell-command (string-append "test -d " (shell-quote path))) 0))
          (mit (mit-file-directory? path))
          (else #t))))
 

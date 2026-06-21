@@ -61,9 +61,9 @@
 	          (scheme time)
           (scheme write)
           (scheme process-context)
+          (conduit)
           (kons compat files)
           (kons compat threads)
-          (kons compat process)
           (kons ui))
 
   (begin
@@ -79,6 +79,19 @@
 (define (displayln x)
   (display x)
   (newline))
+
+(define (read-line . maybe-port)
+  (let ((port (if (null? maybe-port)
+                  (current-input-port)
+                  (car maybe-port))))
+    (let loop ((chars '()))
+      (let ((ch (read-char port)))
+        (cond
+         ((eof-object? ch)
+          (if (null? chars) ch (list->string (reverse chars))))
+         ((char=? ch #\newline)
+          (list->string (reverse chars)))
+         (else (loop (cons ch chars))))))))
 
 (define (set-log-level! level)
   (set! current-log-level level))
@@ -296,7 +309,7 @@
 	(define (shell-command-status cmd)
 	  (let* ((tmp (next-temporary-path "kons-status"))
 	         (wrapper (string-append "( " cmd " ); printf '%s\\n' $? > " (shell-quote tmp))))
-	    (system wrapper)
+	    (shell-command wrapper)
 	    (let ((status (string->number (call-with-input-file tmp read-line))))
 	      (delete-file-if-exists tmp)
 	      (if status status 1))))

@@ -453,10 +453,10 @@ download_source() {
     say "Cloning $KONS_REPO#$KONS_REF"
     if [ "$DRY_RUN" -eq 1 ]; then
       say "+ git clone --depth 1 --branch $KONS_REF $KONS_REPO $dest"
-      say "+ git -C $dest submodule update --init --recursive vendor/scm-args"
+      say "+ git -C $dest submodule update --init --recursive vendor/scm-args vendor/conduit"
     else
       git clone --depth 1 --branch "$KONS_REF" "$KONS_REPO" "$dest"
-      git -C "$dest" submodule update --init --recursive vendor/scm-args
+      git -C "$dest" submodule update --init --recursive vendor/scm-args vendor/conduit
     fi
     return 0
   fi
@@ -478,19 +478,20 @@ download_source() {
 ensure_vendor_dependency() {
   source_dir=$1
 
-  if [ -d "$source_dir/vendor/scm-args/src/args" ]; then
+  if [ -d "$source_dir/vendor/scm-args/src/args" ] && [ -d "$source_dir/vendor/conduit/src/conduit" ]; then
     return 0
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    say "+ git -C $source_dir submodule update --init --recursive vendor/scm-args"
+    say "+ git -C $source_dir submodule update --init --recursive vendor/scm-args vendor/conduit"
     return 0
   fi
 
   require_cmd git
-  [ -d "$source_dir/.git" ] || die "vendor/scm-args is missing and $source_dir is not a git checkout"
-  git -C "$source_dir" submodule update --init --recursive vendor/scm-args
+  [ -d "$source_dir/.git" ] || die "vendored dependencies are missing and $source_dir is not a git checkout"
+  git -C "$source_dir" submodule update --init --recursive vendor/scm-args vendor/conduit
   [ -d "$source_dir/vendor/scm-args/src/args" ] || die "vendor/scm-args did not provide src/args"
+  [ -d "$source_dir/vendor/conduit/src/conduit" ] || die "vendor/conduit did not provide src/conduit"
 }
 
 write_env_files() {

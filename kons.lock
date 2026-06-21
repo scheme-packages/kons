@@ -2,5 +2,9 @@
   (root
     (name (scheme-packages kons)) (version "0.2.0") (features default))
   (packages
-    (package (scope runtime) (type git)
-      (name (args)) (url "https://github.com/playx18/scm-args.git") (rev #f) (subpath #f) (source "remote-git") (commit "0236f85cf2d20e94d145a23d8594adccf7e79cf3"))) (overrides))
+    (package (scope runtime) (type registry)
+      (name (args)) (req "^0.1") (version "0.1.1") (registry "default") (checksum "698b760c2528b0310140932b8e24920011aa93db803c1202c7c7505f06482914") (download "https://kons.playxe.org/api/v1/packages/args/0.1.1/download") (optional #f) (features))
+    (package (scope runtime) (type registry)
+      (name (conduit)) (req "^0.1") (version "0.1.0") (registry "default") (checksum "18cb4b1c326ba8ff6833c8d19523cc8cd9d0d7850765d7fa6bb65ac9219aeb8e") (download "https://kons.playxe.org/api/v1/packages/conduit/0.1.0/download") (optional #f) (features))
+    (system (scope runtime)
+      (names (scheme base) (scheme write)))) (overrides))

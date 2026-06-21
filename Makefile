@@ -17,9 +17,11 @@ KONS_BIN = ./bin/kons
 TEST_ENV = XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) KONS_HOME=$(KONS_TEST_HOME) KONS_SCHEME=$(KONS_SCHEME)
 KONS = $(TEST_ENV) $(KONS_BIN)
 ABS_KONS = $(TEST_ENV) $(abspath $(KONS_BIN))
-RUN_TEST = $(TEST_ENV) $(CAPY) -L $(ARGS_SRCDIR),src -s
+RUN_TEST = $(TEST_ENV) $(CAPY) -L $(VENDOR_SRCDIRS),src -s
 ARGS_SRCDIR = vendor/scm-args/src
-VENDOR_SUBMODULE = vendor/scm-args
+CONDUIT_SRCDIR = vendor/conduit/src
+VENDOR_SRCDIRS = $(ARGS_SRCDIR),$(CONDUIT_SRCDIR)
+VENDOR_SUBMODULES = vendor/scm-args vendor/conduit
 .PHONY: check check-all check-required clean-test-cache unit-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
 
 check: unit-tests verify-capy install-verify install-script-verify
@@ -96,15 +98,15 @@ check-required:
 	$(MAKE) check-all
 
 self-verify:
-	git submodule update --init --recursive $(VENDOR_SUBMODULE)
-	$(CAPY) -L $(ARGS_SRCDIR),src -s src/kons/main.scm -- metadata >/tmp/kons-self-capy.out
+	git submodule update --init --recursive $(VENDOR_SUBMODULES)
+	$(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- metadata >/tmp/kons-self-capy.out
 	@if command -v $(GUILE) >/dev/null 2>&1; then SCHEME=guile ./bin/kons metadata >/tmp/kons-self-scheme-guile.out; else echo "skip manager SCHEME fallback Guile: $(GUILE) not found"; fi
-	@if command -v $(GAUCHE) >/dev/null 2>&1; then $(GAUCHE) -r7 -I $(ARGS_SRCDIR) -I src src/kons/main.scm metadata >/tmp/kons-self-gauche.out; else echo "skip manager Gauche: $(GAUCHE) not found"; fi
-	@if command -v $(GUILE) >/dev/null 2>&1; then GUILE_AUTO_COMPILE=0 $(GUILE) --r7rs -L $(ARGS_SRCDIR) -L src src/kons/main.scm metadata >/tmp/kons-self-guile.out; else echo "skip manager Guile: $(GUILE) not found"; fi
-	@if command -v $(CHIBI) >/dev/null 2>&1; then $(CHIBI) -I $(ARGS_SRCDIR) -I src src/kons/main.scm metadata >/tmp/kons-self-chibi.out; else echo "skip Chibi: $(CHIBI) not found"; fi
+	@if command -v $(GAUCHE) >/dev/null 2>&1; then $(GAUCHE) -r7 -I $(ARGS_SRCDIR) -I $(CONDUIT_SRCDIR) -I src src/kons/main.scm metadata >/tmp/kons-self-gauche.out; else echo "skip manager Gauche: $(GAUCHE) not found"; fi
+	@if command -v $(GUILE) >/dev/null 2>&1; then GUILE_AUTO_COMPILE=0 $(GUILE) --r7rs -L $(ARGS_SRCDIR) -L $(CONDUIT_SRCDIR) -L src src/kons/main.scm metadata >/tmp/kons-self-guile.out; else echo "skip manager Guile: $(GUILE) not found"; fi
+	@if command -v $(CHIBI) >/dev/null 2>&1; then $(CHIBI) -I $(ARGS_SRCDIR) -I $(CONDUIT_SRCDIR) -I src src/kons/main.scm metadata >/tmp/kons-self-chibi.out; else echo "skip Chibi: $(CHIBI) not found"; fi
 
 install:
-	git submodule update --init --recursive $(VENDOR_SUBMODULE)
+	git submodule update --init --recursive $(VENDOR_SUBMODULES)
 	KONS_SCHEME="$(KONS_SCHEME)" KONS_HOME="$(KONS_HOME)" KONS_VENDORDIR="$(CURDIR)/vendor" ./bin/kons --scheme "$(KONS_SCHEME)" install --compile-mode compiled --jobs 4 --path . --root "$(DESTDIR)$(KONS_HOME)" --directory "$(DESTDIR)$(bindir)" --name kons
 	install -d "$(DESTDIR)$(KONS_HOME)"
 	{ \
