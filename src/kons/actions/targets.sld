@@ -36,6 +36,7 @@
   (import (scheme base)
           (scheme file)
           (scheme write)
+          (kons compat files)
           (kons util)
           (kons implementation)
           (kons manifest)
