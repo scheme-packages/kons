@@ -261,8 +261,30 @@ Hook properties:
 
 If `build.scm` exists and no `build-hooks` field exists, kons runs it.
 
-Hooks receive build root and source root as command line arguments. Files
-written in build root are added to load path.
+Hooks receive build root and source root as positional command line arguments.
+They also receive named argv entries: `--kons-build-root`,
+`--kons-source-root`, `--kons-package-root`, `--kons-out-dir`,
+`--kons-target-scheme`, `--kons-hook-scheme`, `--kons-profile`,
+`--kons-target`, `--kons-package-name`, `--kons-package-version`, repeated
+`--kons-feature`, and repeated `--kons-dialect`.
+
+Hooks can import `(kons build)` from the generated build load path. The helper
+exports context values plus directive helpers:
+
+| Helper | Effect |
+| --- | --- |
+| `(rerun-on-change PATH ...)` | Rerun when these package-relative paths change. |
+| `(write-library NAME FORM)` | Write generated `.sld` or `.sls` for `NAME` and add the output root to load paths. |
+| `(add-library-path PATH ...)` / `(add-load-path PATH ...)` | Add generated Scheme load paths. |
+| `(add-dlopen-path PATH ...)` | Add runtime native library search paths. |
+| `(add-ld-library-path PATH ...)` / `(add-dyld-library-path PATH ...)` | Add platform dynamic-library paths. |
+| `(add-ld-preload PATH ...)` / `(add-ld-preload-path PATH ...)` | Add preload settings for runtime commands. |
+| `(set-runtime-env NAME VALUE)` / `(add-runtime-env-path NAME PATH ...)` | Add runtime environment settings. |
+| `(link-search PATH ...)` / `(link-lib LIB ...)` | Record native link metadata. |
+| `(output KEY VALUE)` / `(metadata KEY VALUE)` | Record arbitrary generated output metadata. |
+
+The same directives can be printed as sexpressions, for example
+`(kons::rerun-on-change "schema.json")`.
 
 Clean example:
 
@@ -279,19 +301,15 @@ Clean example:
 
 ```scheme
 ;; build.scm
-(import (scheme base) (scheme file) (scheme write))
+(import (scheme base) (kons build))
 
-(let ((build-root (cadr (command-line))))
-  (call-with-output-file (string-append build-root "/generated.sld")
-    (lambda (out)
-      (write
-       `(define-library (example generated generated)
-          (export message)
-          (import (scheme base))
-          (begin
-            (define message "hello from build hook")))
-       out)
-      (newline out))))
+(write-library
+ '(example generated generated)
+ '(define-library (example generated generated)
+    (export message)
+    (import (scheme base))
+    (begin
+      (define message "hello from build hook"))))
 ```
 
 ```scheme

@@ -292,21 +292,30 @@ Build hooks are Scheme files that run before build. Put this in `kons.scm`:
 
 If there is no `build-hooks` field but `build.scm` exists, kons runs it.
 
-A hook gets two arguments:
+A hook gets two positional arguments for compatibility:
 
 1. build root
 2. source root
 
-Small `build.scm` example:
+It also receives named argv entries such as `--kons-build-root`,
+`--kons-source-root`, `--kons-package-root`, `--kons-target-scheme`,
+`--kons-hook-scheme`, `--kons-profile`, repeated `--kons-feature`, and
+repeated `--kons-dialect`.
+
+Import `(kons build)` in the hook for parsed accessors and directive helpers:
 
 ```scheme
-(import (scheme base) (scheme file) (scheme write))
+(import (scheme base) (kons build))
 
-(let ((build-root (cadr (command-line))))
-  (call-with-output-file (string-append build-root "/generated.scm")
-    (lambda (out)
-      (display "(define generated-message \"hello\")" out)
-      (newline out))))
+(rerun-on-change "templates/data.json")
+(metadata "generator" "build.scm")
+```
+
+Build hooks can also print directives directly:
+
+```scheme
+(kons::rerun-on-change "templates/data.json")
+(kons::ld-library-path "native/lib")
 ```
 
 Full example with a generated library:
@@ -324,20 +333,31 @@ Full example with a generated library:
 
 ```scheme
 ;; build.scm
-(import (scheme base) (scheme file) (scheme write))
+(import (scheme base) (kons build))
 
-(let ((build-root (cadr (command-line))))
-  (call-with-output-file (string-append build-root "/generated.sld")
-    (lambda (out)
-      (write
-       `(define-library (example generated generated)
-          (export message)
-          (import (scheme base))
-          (begin
-            (define message "hello from build hook")))
-       out)
-      (newline out))))
+(write-library
+ '(example generated generated)
+ '(define-library (example generated generated)
+    (export message)
+    (import (scheme base))
+    (begin
+      (define message "hello from build hook"))))
 ```
+
+`write-library` writes `.sld` for R7RS packages and `.sls` for R6RS packages,
+then adds the build output to the package load path.
+
+For native artifacts, use:
+
+```scheme
+(add-dlopen-path "native")
+(add-ld-library-path "native")
+(add-dyld-library-path "native")
+(add-ld-preload "native/libhook.so")
+(set-runtime-env "MY_LIB_MODE" "debug")
+```
+
+Kons applies these directives to later `run`, `test`, and `bench` commands.
 
 ```scheme
 ;; src/main.scm

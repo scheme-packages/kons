@@ -50,18 +50,51 @@
           skint-implementation-modes
           cyclone-implementation-modes))
 
-(define (mode-ref mode key default)
+(define (mode-ref/raw mode key default)
   (let ((field (assq key mode)))
     (if field (cdr field) default)))
+
+(define (selected-dialect mode)
+  (or (mode-ref/raw mode 'selected-dialect #f)
+      (let ((dialects (mode-ref/raw mode 'dialects '())))
+        (and (pair? dialects) (car dialects)))))
+
+(define (dialect-option-entry mode dialect)
+  (and dialect
+       (let ((options (mode-ref/raw mode 'dialect-options '())))
+         (let loop ((items options))
+           (cond
+            ((null? items) #f)
+            ((and (pair? (car items)) (eq? (caar items) dialect))
+             (cdar items))
+            (else (loop (cdr items))))))))
+
+(define (mode-ref mode key default)
+  (let ((dialect-options (dialect-option-entry mode (selected-dialect mode))))
+    (cond
+     ((and dialect-options (assq key dialect-options)) => cdr)
+     (else (mode-ref/raw mode key default)))))
 
 (define (implementation-mode-field mode key default)
   (mode-ref mode key default))
 
 (define (implementation-mode id)
+  (define (dialect-option-id mode dialect)
+    (let ((options (dialect-option-entry mode dialect)))
+      (and options (mode-ref/raw options 'id #f))))
+  (define (mode-dialect-id-match mode id)
+    (let loop ((dialects (mode-ref/raw mode 'dialects '())))
+      (cond
+       ((null? dialects) #f)
+       ((eq? (dialect-option-id mode (car dialects)) id) (car dialects))
+       (else (loop (cdr dialects))))))
   (let loop ((items implementation-modes))
     (cond
      ((null? items) #f)
-     ((eq? (mode-ref (car items) 'id #f) id) (car items))
+     ((eq? (mode-ref/raw (car items) 'id #f) id) (car items))
+     ((mode-dialect-id-match (car items) id)
+      => (lambda (dialect)
+           (implementation-mode-with-dialect (car items) dialect)))
      (else (loop (cdr items))))))
 
 (define (implementation-mode-id mode)
@@ -71,7 +104,7 @@
   (mode-ref mode 'implementation (implementation-mode-id mode)))
 
 (define (implementation-mode-command mode)
-  (mode-ref mode 'command #f))
+  (resolve-implementation-command mode))
 
 (define (implementation-mode-dialects mode)
   (mode-ref mode 'dialects '()))
@@ -85,18 +118,28 @@
 (define (implementation-mode-compiler-command mode)
   (mode-ref mode 'compiler-command #f))
 
+(define (implementation-mode-selected-for-dialects mode dialects)
+  (let loop ((requested dialects))
+    (cond
+     ((null? requested) #f)
+     ((memq (car requested) (implementation-mode-dialects mode)) (car requested))
+     (else (loop (cdr requested))))))
+
+(define (implementation-mode-with-dialect mode dialect)
+  (cons (cons 'selected-dialect dialect) mode))
+
 (define (implementation-mode-matches? mode implementation dialects)
   (and (eq? (implementation-mode-implementation mode) implementation)
-       (let loop ((supported (implementation-mode-dialects mode)))
-         (and (pair? supported)
-              (or (memq (car supported) dialects)
-                  (loop (cdr supported)))))))
+       (implementation-mode-selected-for-dialects mode dialects)))
 
 (define (implementation-mode-for-dialects implementation dialects)
   (let loop ((items implementation-modes))
     (cond
      ((null? items) #f)
-     ((implementation-mode-matches? (car items) implementation dialects) (car items))
+     ((implementation-mode-matches? (car items) implementation dialects)
+      (implementation-mode-with-dialect
+       (car items)
+       (implementation-mode-selected-for-dialects (car items) dialects)))
      (else (loop (cdr items))))))
 
 (define (implementation-command scheme)
@@ -412,10 +455,62 @@
            (join-strings (map shell-quote version-argv) " ")
            " || true ) 2>&1")))))
 
+(define (command-available? command)
+  (= (shell-command-status
+      (string-append "command -v " (shell-quote command) " >/dev/null 2>&1"))
+     0))
+
+(define (implementation-command-candidates mode)
+  (let ((commands (mode-ref mode 'commands #f))
+        (command (mode-ref mode 'command #f)))
+    (cond
+     ((and commands (not (null? commands))) commands)
+     (command (list command))
+     (else (list (symbol->string (implementation-mode-id mode)))))))
+
+(define (implementation-version-matches? mode command)
+  (define (contains-any? version needles)
+    (cond
+     ((not version) #f)
+     ((not needles) #f)
+     ((string? needles) (string-contains? version needles))
+     ((pair? needles)
+      (let loop ((items needles))
+        (and (pair? items)
+             (or (string-contains? version (car items))
+                 (loop (cdr items))))))
+     (else #f)))
+  (let* ((required (implementation-mode-field mode 'version-contains #f))
+         (rejected (implementation-mode-field mode 'version-reject-contains #f))
+         (version (implementation-version-output mode command)))
+    (and (not (contains-any? version rejected))
+         (or (not required)
+             (contains-any? version required)))))
+
+(define (resolve-implementation-command mode)
+  (let ((candidates (implementation-command-candidates mode)))
+    (let loop ((items candidates) (available '()))
+      (cond
+       ((null? items)
+        (cond
+         ((pair? available)
+          (dependency-error "available Scheme command did not match expected implementation"
+                            (implementation-mode-implementation mode)
+                            (reverse available)
+                            (implementation-mode-field mode 'version-contains "unknown")))
+         ((pair? candidates) (car candidates))
+         (else #f)))
+       ((not (command-available? (car items)))
+        (loop (cdr items) available))
+       ((implementation-version-matches? mode (car items))
+        (car items))
+       (else
+        (loop (cdr items) (cons (car items) available)))))))
+
 (define (ensure-implementation-version! scheme mode command version)
   (let ((required (implementation-mode-field mode 'version-contains #f)))
     (when (and required
-               (not (and version (string-contains? version required))))
+               (not (implementation-version-matches? mode command)))
       (dependency-error "selected Scheme implementation command did not match expected implementation"
                         scheme
                         command

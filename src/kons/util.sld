@@ -29,6 +29,7 @@
           absolute-path
           shell-command-status
           run-command
+          capture-command-lines/status
           capture-first-line
           file-content-hash
           path-content-hash
@@ -319,6 +320,22 @@
     (unless (= status 0)
       (die "command failed" cmd status))
     status))
+
+	(define (read-all-lines path)
+	  (call-with-input-file path
+	    (lambda (in)
+	      (let loop ((line (read-line in)) (out '()))
+	        (if (eof-object? line)
+	            (reverse out)
+	            (loop (read-line in) (cons line out)))))))
+
+	(define (capture-command-lines/status cmd)
+	  (let* ((tmp (next-temporary-path "kons-output"))
+	         (status (shell-command-status
+	                  (string-append cmd " > " (shell-quote tmp)))))
+	    (let ((lines (if (file-exists? tmp) (read-all-lines tmp) '())))
+	      (delete-file-if-exists tmp)
+	      (list status lines))))
 
 	(define (capture-first-line cmd)
 	  (let* ((tmp (next-temporary-path "kons-capture"))

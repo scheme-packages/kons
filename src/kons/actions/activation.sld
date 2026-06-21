@@ -27,7 +27,9 @@
           build-hook-cache-record
           build-hook-marker-dir
           build-hook-marker-path
+          build-hook-directives-path
           stored-hook-record
+          stored-hook-directives
           run-build-hook-with-source-roots
           run-build-hook
           run-build-hooks
@@ -147,9 +149,12 @@
   (let ((srcs (activation-source-roots-with-dependency-builds manifest include-dev? features cmd)))
     (if (or (not (build-output-needed? manifest)) (null? srcs))
         srcs
-        (cons (car srcs)
-              (cons (build-output-dir manifest features cmd)
-                    (cdr srcs))))))
+        (let* ((build-root (build-output-dir manifest features cmd))
+               (generated-load-paths
+                (build-hook-output-load-paths manifest features cmd build-root)))
+          (cons (car srcs)
+                (append (cons build-root generated-load-paths)
+                        (cdr srcs)))))))
 
 (define (dependency-build-output-dir dep-manifest dep-package-root dep-features cmd)
   (path-join
@@ -180,7 +185,11 @@
             (let ((build-root (dependency-build-output-for-source-root (car items) cmd)))
               (loop (cdr items)
                     (if build-root
-                        (cons build-root (cons (car items) out))
+                        (append
+                         (reverse
+                          (cons build-root
+                                (dependency-build-output-load-paths (car items) cmd build-root)))
+                         (cons (car items) out))
                         (cons (car items) out))))))))))
 
 (define (implementation-field probe key default)
@@ -444,6 +453,137 @@
              (absolute ,(path-join build-root file))))
          (build-output-files build-root))))
 
+(define (output-directive-paths build-root directive)
+  (map
+   (lambda (path)
+     (if (absolute-path? path) path (path-join build-root path)))
+   (directive-args directive)))
+
+(define (build-hook-output-directives manifest build-root)
+  (append-map
+   (lambda (hook)
+     (let ((script (build-hook-script manifest hook)))
+       (stored-hook-directives
+        (build-hook-directives-path build-root script))))
+   (effective-build-hooks manifest)))
+
+(define (build-hook-output-load-paths manifest features cmd build-root)
+  (append-map
+   (lambda (directive)
+     (if (or (eq? (directive-name directive) 'kons::load-path)
+             (eq? (directive-name directive) 'kons::library-path))
+         (output-directive-paths build-root directive)
+         '()))
+   (build-hook-output-directives manifest build-root)))
+
+(define (dependency-build-output-load-paths source-root cmd build-root)
+  (let ((package-root (find-package-root-for-source-root source-root)))
+    (if package-root
+        (let ((dep-manifest (parse-manifest (path-join package-root "kons.scm"))))
+          (build-hook-output-load-paths
+           dep-manifest
+           (default-feature-set dep-manifest)
+           cmd
+           build-root))
+        '())))
+
+(define (directive-value->string value)
+  (cond
+   ((string? value) value)
+   ((symbol? value) (symbol->string value))
+   (else "")))
+
+(define (directive-string-values directive)
+  (map directive-value->string (directive-args directive)))
+
+(define (build-hook-directive-values directives name)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) name)
+         (directive-string-values directive)
+         '()))
+   directives))
+
+(define (build-hook-directive-path-values build-root directives name)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) name)
+         (output-directive-paths build-root directive)
+         '()))
+   directives))
+
+(define (path-list-string paths)
+  (string-join paths ":"))
+
+(define (env-entry name values)
+  (if (null? values) '() (list (list name (path-list-string values)))))
+
+(define (explicit-env-directives directives)
+  (append-map
+   (lambda (directive)
+     (case (directive-name directive)
+       ((kons::env)
+        (let ((args (directive-string-values directive)))
+          (if (and (pair? args) (pair? (cdr args)))
+              (list (list (car args) (cadr args)))
+              '())))
+       ((kons::env-path)
+        (let ((args (directive-string-values directive)))
+          (if (and (pair? args) (pair? (cdr args)))
+              (list (list (car args) (path-list-string (cdr args))))
+              '())))
+       (else '())))
+   directives))
+
+(define (build-hook-runtime-env manifest features cmd)
+  (let* ((build-root (build-output-dir manifest features cmd))
+         (directives (build-hook-output-directives manifest build-root))
+         (ld-paths (append
+                    (build-hook-directive-path-values build-root directives 'kons::ld-library-path)
+                    (build-hook-directive-path-values build-root directives 'kons::dlopen-path)))
+         (dyld-paths (append
+                      (build-hook-directive-path-values build-root directives 'kons::dyld-library-path)
+                      (build-hook-directive-path-values build-root directives 'kons::dlopen-path)))
+         (ld-preloads (build-hook-directive-path-values build-root directives 'kons::ld-preload))
+         (ld-preload-paths (build-hook-directive-path-values build-root directives 'kons::ld-preload-path)))
+    (append
+     (env-entry "LD_LIBRARY_PATH" ld-paths)
+     (env-entry "DYLD_LIBRARY_PATH" dyld-paths)
+     (env-entry "LD_PRELOAD" ld-preloads)
+     (env-entry "LD_PRELOAD_PATH" ld-preload-paths)
+     (explicit-env-directives directives))))
+
+(define (merge-env-entry entry entries)
+  (let loop ((items entries) (out '()) (done? #f))
+    (cond
+     ((null? items)
+      (reverse (if done? out (cons entry out))))
+     ((string=? (car entry) (caar items))
+      (loop (cdr items)
+            (cons (list (car entry)
+                        (if (string=? (cadr entry) "")
+                            (cadar items)
+                            (if (string=? (cadar items) "")
+                                (cadr entry)
+                                (string-append (cadr entry) ":" (cadar items)))))
+                  out)
+            #t))
+     (else (loop (cdr items) (cons (car items) out) done?)))))
+
+(define (merge-env additions existing)
+  (let loop ((items additions) (out existing))
+    (if (null? items)
+        out
+        (loop (cdr items) (merge-env-entry (car items) out)))))
+
+(define (command-with-runtime-build-env manifest features cmd command)
+  (let ((env (build-hook-runtime-env manifest features cmd)))
+    (if (null? env)
+        command
+        `(command
+          (env ,@(merge-env env (command-env command)))
+          (argv ,@(command-argv command))))))
+
 (define (build-record manifest features cmd)
 	  `(build
 	    (root ,(package-name manifest))
@@ -466,17 +606,137 @@
      (manifest-root-path manifest path))
    (alist-ref hook 'rerun-on-change '())))
 
-(define (build-hook-watch-hashes manifest hook)
+(define (directive-name directive)
+  (and (pair? directive) (symbol? (car directive)) (car directive)))
+
+(define (directive-args directive)
+  (if (pair? directive) (cdr directive) '()))
+
+(define (known-build-directive? directive)
+  (case (directive-name directive)
+    ((kons::rerun-on-change
+      kons::load-path
+      kons::library-path
+      kons::ld-library-path
+      kons::dyld-library-path
+      kons::ld-preload
+      kons::ld-preload-path
+      kons::dlopen-path
+      kons::env
+      kons::env-path
+      kons::library
+      kons::link-search
+      kons::link-lib
+      kons::output
+      kons::metadata)
+     #t)
+    (else #f)))
+
+(define (build-directive-output? directive)
+  (case (directive-name directive)
+    ((kons::load-path
+      kons::library-path
+      kons::ld-library-path
+      kons::dyld-library-path
+      kons::ld-preload
+      kons::ld-preload-path
+      kons::dlopen-path
+      kons::env
+      kons::env-path
+      kons::library
+      kons::link-search
+      kons::link-lib
+      kons::output
+      kons::metadata)
+     #t)
+    (else #f)))
+
+(define (string-prefix? prefix s)
+  (let ((plen (string-length prefix)))
+    (and (>= (string-length s) plen)
+         (string=? prefix (substring s 0 plen)))))
+
+(define (directive-output-line? line)
+  (string-prefix? "(kons::" line))
+
+(define (hook-directive-exprs lines)
+  (let ((path (temporary-file-path "kons-hook-directives.scm")))
+    (call-with-output-file path
+      (lambda (out)
+        (for-each
+         (lambda (line)
+           (when (directive-output-line? line)
+             (display line out)
+             (newline out)))
+         lines)))
+    (let ((exprs (if (file-exists? path) (read-all-exprs path) '())))
+      (when (file-exists? path)
+        (delete-file path))
+      exprs)))
+
+(define (hook-nondirective-lines lines)
+  (let loop ((items lines) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((directive-output-line? (car items)) (loop (cdr items) out))
+     (else (loop (cdr items) (cons (car items) out))))))
+
+(define (validate-build-directive directive)
+  (unless (known-build-directive? directive)
+    (manifest-error "unknown build hook directive" directive))
+  (if (eq? (directive-name directive) 'kons::library)
+      (unless (and (= (length (directive-args directive)) 2)
+                   (symbol-list? (car (directive-args directive)))
+                   (pair? (cadr (directive-args directive))))
+        (manifest-error "build hook library directive expects a library name and form" directive))
+      (for-each
+       (lambda (arg)
+         (unless (or (string? arg) (symbol? arg))
+           (manifest-error "build hook directive values must be strings or symbols" directive)))
+       (directive-args directive)))
+  directive)
+
+(define (capture-build-directives command)
+  (let* ((result (capture-command-lines/status (command->shell command)))
+         (status (car result))
+         (lines (cadr result)))
+    (for-each displayln (hook-nondirective-lines lines))
+    (unless (= status 0)
+      (die "command failed" (command->shell command) status))
+    (map validate-build-directive (hook-directive-exprs lines))))
+
+(define (directive-paths manifest directive)
+  (map
+   (lambda (path)
+     (manifest-root-path manifest path))
+   (directive-args directive)))
+
+(define (dynamic-build-hook-watch-paths manifest directives)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) 'kons::rerun-on-change)
+         (directive-paths manifest directive)
+         '()))
+   directives))
+
+(define (build-hook-watch-hashes/paths paths)
   (map
    (lambda (path)
      (unless (file-exists? path)
        (manifest-error "build hook watched path not found" path))
      `(,path ,(path-content-hash path)))
-   (build-hook-watch-paths manifest hook)))
+   paths))
 
-(define (build-hook-cache-record manifest cmd features hook script)
-  (let ((watched (build-hook-watch-paths manifest hook))
-        (resolved-scheme (resolve-build-hook-scheme manifest hook cmd)))
+(define (build-hook-watch-hashes manifest hook)
+  (build-hook-watch-hashes/paths (build-hook-watch-paths manifest hook)))
+
+(define (build-hook-cache-record manifest cmd features build-root hook script)
+  (let* ((directive-path (build-hook-directives-path build-root script))
+         (directives (stored-hook-directives directive-path))
+         (watched (append
+                   (build-hook-watch-paths manifest hook)
+                   (dynamic-build-hook-watch-paths manifest directives)))
+         (resolved-scheme (resolve-build-hook-scheme manifest hook cmd)))
     `(build-hook-cache
       (root ,(package-name manifest))
       (version ,(package-version manifest))
@@ -487,7 +747,7 @@
       ,@(if (null? watched)
             `((source-hash ,(path-content-hash (manifest-source-root manifest))))
             `((watched-paths ,@watched)
-              (watched-hashes ,@(build-hook-watch-hashes manifest hook))))
+              (watched-hashes ,@(build-hook-watch-hashes/paths watched))))
 	      (scheme ,resolved-scheme)
 	      (target ,(command-option cmd "target" #f))
 	      (profile ,(command-selected-profile cmd))
@@ -501,11 +761,53 @@
   (path-join (build-hook-marker-dir build-root)
              (string-append (safe-store-token script) ".scm")))
 
+(define (build-hook-directives-path build-root script)
+  (path-join (build-hook-marker-dir build-root)
+             (string-append (safe-store-token script) ".directives.scm")))
+
 (define (stored-hook-record marker)
   (if (file-exists? marker)
       (let ((exprs (read-all-exprs marker)))
         (if (null? exprs) #f (car exprs)))
       #f))
+
+(define (stored-hook-directives path)
+  (if (file-exists? path)
+      (read-all-exprs path)
+      '()))
+
+(define (build-hook-argv-context manifest cmd features build-root source-root hook-scheme)
+  (append
+   (list build-root
+         source-root
+         "--kons-build-root"
+         build-root
+         "--kons-source-root"
+         source-root
+         "--kons-package-root"
+         (manifest-root manifest)
+         "--kons-out-dir"
+         build-root
+         "--kons-target-scheme"
+         (symbol->string (adapter-scheme manifest (command-selected-scheme cmd)))
+         "--kons-hook-scheme"
+         (symbol->string hook-scheme)
+         "--kons-profile"
+         (symbol->string (command-selected-profile cmd))
+         "--kons-target"
+         (or (command-option cmd "target" #f) "")
+         "--kons-package-name"
+         (name->string (package-name manifest))
+         "--kons-package-version"
+         (or (package-version manifest) ""))
+   (append-map
+    (lambda (feature)
+      (list "--kons-feature" (symbol->string feature)))
+    features)
+   (append-map
+    (lambda (dialect)
+      (list "--kons-dialect" (symbol->string dialect)))
+    (package-dialects manifest))))
 
 (define (resolve-build-hook-scheme manifest hook cmd)
   (let ((per-hook (alist-ref hook 'scheme-impl #f)))
@@ -520,14 +822,15 @@
     ((scheme)
      (let* ((script (build-hook-script manifest hook))
             (marker (build-hook-marker-path build-root script))
+            (directives-path (build-hook-directives-path build-root script))
             (record (and (file-exists? script)
-                         (build-hook-cache-record manifest cmd features hook script)))
+                         (build-hook-cache-record manifest cmd features build-root hook script)))
             (scheme (resolve-build-hook-scheme manifest hook cmd))
             (command (adapter-command
                   scheme
-                  srcs
+                  (cons build-root srcs)
                   script
-                  (list build-root source-root)
+                  (build-hook-argv-context manifest cmd features build-root source-root scheme)
                   'normal
                   '()
                   (command-selected-profile cmd))))
@@ -541,8 +844,18 @@
 		             (log-debug "build command" (command->shell command))
 		             (log-debug "build argv" (command-argv command))
 	             (run-command (string-append "mkdir -p " (shell-quote (build-hook-marker-dir build-root))))
-	             (run-command-record command)
-	             (write-expr-file marker record)
+                 (let ((directives (capture-build-directives command)))
+                   (write-build-directive-libraries! manifest build-root directives)
+                   (call-with-output-file directives-path
+                     (lambda (out)
+                       (for-each
+                        (lambda (directive)
+                          (write directive out)
+                          (newline out))
+                        directives)))
+                   (write-expr-file
+                    marker
+                    (build-hook-cache-record manifest cmd features build-root hook script)))
                  (ui-status-done "ran build hook" script)))))
     (else (manifest-error "unknown build hook type" (alist-ref hook 'type #f)))))
 
@@ -573,12 +886,45 @@
 (define (feature-helper-library-name manifest)
   (append (package-name manifest) '(kons features)))
 
+(define (artifact-helper-library-name manifest)
+  (append (package-name manifest) '(kons artifacts)))
+
 (define (mkdir-for-library-path path)
   (run-command (string-append "mkdir -p " (shell-quote (dirname path)))))
 
 (define (write-library-expr! path expr)
   (mkdir-for-library-path path)
   (write-expr-file path expr))
+
+(define (build-directive-library-name directive)
+  (car (directive-args directive)))
+
+(define (build-directive-library-form directive)
+  (cadr (directive-args directive)))
+
+(define (write-build-directive-library! manifest build-root directive)
+  (let ((name (build-directive-library-name directive))
+        (form (build-directive-library-form directive))
+        (dialects (package-dialects manifest)))
+    (when (memq 'r7rs dialects)
+      (write-library-expr!
+       (library-source-path build-root name)
+       form))
+    (when (memq 'guile dialects)
+      (write-library-expr!
+       (module-source-path build-root name)
+       form))
+    (when (memq 'r6rs dialects)
+      (write-library-expr!
+       (r6rs-library-output-path build-root name)
+       form))))
+
+(define (write-build-directive-libraries! manifest build-root directives)
+  (for-each
+   (lambda (directive)
+     (when (eq? (directive-name directive) 'kons::library)
+       (write-build-directive-library! manifest build-root directive)))
+   directives))
 
 (define (feature-cond-rules active-features)
   (append
@@ -628,8 +974,306 @@
      (import (rnrs))
      (define active-features ',active-features)
      (define (feature-enabled? feature)
-       (and (memq feature active-features) #t))
+     (and (memq feature active-features) #t))
      ,(feature-cond-syntax active-features)))
+
+(define (r7rs-build-helper-library)
+  '(define-library (kons build)
+     (export build-root source-root package-root out-dir arg-value
+             arg-values target-scheme hook-scheme profile target
+             package-name package-version features feature-enabled?
+             dialects dialect-enabled? r6rs?
+             library-source-path write-library
+             emit rerun-on-change add-load-path add-library-path
+             add-ld-library-path add-dyld-library-path add-dlopen-path
+             add-ld-preload add-ld-preload-path set-runtime-env
+             add-runtime-env-path link-search link-lib output metadata)
+     (import (scheme base)
+             (scheme process-context)
+             (scheme write))
+     (begin
+       (define (arg-value name default)
+         (let loop ((items (command-line)))
+           (cond
+            ((null? items) default)
+            ((and (pair? (cdr items)) (string=? (car items) name))
+             (cadr items))
+            (else (loop (cdr items)))))))
+       (define (arg-values name)
+         (let loop ((items (command-line)) (out '()))
+           (cond
+            ((null? items) (reverse out))
+            ((and (pair? (cdr items)) (string=? (car items) name))
+             (loop (cddr items) (cons (cadr items) out)))
+            (else (loop (cdr items) out)))))
+       (define build-root (arg-value "--kons-build-root" (cadr (command-line))))
+       (define source-root (arg-value "--kons-source-root" (caddr (command-line))))
+       (define package-root (arg-value "--kons-package-root" source-root))
+       (define out-dir (arg-value "--kons-out-dir" build-root))
+       (define target-scheme (string->symbol (arg-value "--kons-target-scheme" "")))
+       (define hook-scheme (string->symbol (arg-value "--kons-hook-scheme" "")))
+       (define profile (string->symbol (arg-value "--kons-profile" "")))
+       (define target (arg-value "--kons-target" ""))
+       (define package-name (arg-value "--kons-package-name" ""))
+       (define package-version (arg-value "--kons-package-version" ""))
+       (define features (map string->symbol (arg-values "--kons-feature")))
+       (define (feature-enabled? feature)
+         (and (memq feature features) #t))
+       (define dialects (map string->symbol (arg-values "--kons-dialect")))
+       (define (dialect-enabled? dialect)
+         (and (memq dialect dialects) #t))
+       (define r6rs? (dialect-enabled? 'r6rs))
+       (define (path-join a b)
+         (if (or (string=? a "") (string=? a "."))
+             b
+             (string-append a "/" b)))
+       (define (library-name-part->string part)
+         (if (symbol? part) (symbol->string part) part))
+       (define (library-source-path name)
+         (let loop ((parts name) (dir out-dir))
+           (cond
+            ((null? parts) dir)
+            ((null? (cdr parts))
+             (path-join dir
+                        (string-append
+                         (library-name-part->string (car parts))
+                         (if r6rs? ".sls" ".sld"))))
+            (else
+             (loop (cdr parts)
+                   (path-join dir (library-name-part->string (car parts))))))))
+       (define (write-library name expr)
+         (emit 'kons::library name expr)
+         (add-library-path out-dir)
+         (library-source-path name))
+       (define (emit name . values)
+         (write (cons name values))
+         (newline))
+       (define (rerun-on-change . paths)
+         (apply emit 'kons::rerun-on-change paths))
+       (define (add-load-path . paths)
+         (apply emit 'kons::load-path paths))
+       (define (add-library-path . paths)
+         (apply emit 'kons::library-path paths))
+       (define (add-ld-library-path . paths)
+         (apply emit 'kons::ld-library-path paths))
+       (define (add-dyld-library-path . paths)
+         (apply emit 'kons::dyld-library-path paths))
+       (define (add-dlopen-path . paths)
+         (apply emit 'kons::dlopen-path paths))
+       (define (add-ld-preload . paths)
+         (apply emit 'kons::ld-preload paths))
+       (define (add-ld-preload-path . paths)
+         (apply emit 'kons::ld-preload-path paths))
+       (define (set-runtime-env name value)
+         (emit 'kons::env name value))
+       (define (add-runtime-env-path name . paths)
+         (apply emit 'kons::env-path name paths))
+       (define (link-search . paths)
+         (apply emit 'kons::link-search paths))
+       (define (link-lib . libs)
+         (apply emit 'kons::link-lib libs))
+       (define (output key value)
+         (emit 'kons::output key value))
+       (define (metadata key value)
+         (emit 'kons::metadata key value))))
+
+(define (r6rs-build-helper-library)
+  '(library (kons build)
+     (export build-root source-root package-root out-dir arg-value
+             arg-values target-scheme hook-scheme profile target
+             package-name package-version features feature-enabled?
+             dialects dialect-enabled? r6rs?
+             library-source-path write-library
+             emit rerun-on-change add-load-path add-library-path
+             add-ld-library-path add-dyld-library-path add-dlopen-path
+             add-ld-preload add-ld-preload-path set-runtime-env
+             add-runtime-env-path link-search link-lib output metadata)
+     (import (rnrs)
+             (rnrs programs))
+     (define (arg-value name default)
+       (let loop ((items (command-line)))
+         (cond
+          ((null? items) default)
+         ((and (pair? (cdr items)) (string=? (car items) name))
+           (cadr items))
+          (else (loop (cdr items))))))
+     (define (arg-values name)
+       (let loop ((items (command-line)) (out '()))
+         (cond
+          ((null? items) (reverse out))
+          ((and (pair? (cdr items)) (string=? (car items) name))
+           (loop (cddr items) (cons (cadr items) out)))
+          (else (loop (cdr items) out)))))
+     (define build-root (arg-value "--kons-build-root" (cadr (command-line))))
+     (define source-root (arg-value "--kons-source-root" (caddr (command-line))))
+     (define package-root (arg-value "--kons-package-root" source-root))
+     (define out-dir (arg-value "--kons-out-dir" build-root))
+     (define target-scheme (string->symbol (arg-value "--kons-target-scheme" "")))
+     (define hook-scheme (string->symbol (arg-value "--kons-hook-scheme" "")))
+     (define profile (string->symbol (arg-value "--kons-profile" "")))
+     (define target (arg-value "--kons-target" ""))
+     (define package-name (arg-value "--kons-package-name" ""))
+     (define package-version (arg-value "--kons-package-version" ""))
+     (define features (map string->symbol (arg-values "--kons-feature")))
+     (define (feature-enabled? feature)
+       (and (memq feature features) #t))
+     (define dialects (map string->symbol (arg-values "--kons-dialect")))
+     (define (dialect-enabled? dialect)
+       (and (memq dialect dialects) #t))
+     (define r6rs? (dialect-enabled? 'r6rs))
+     (define (path-join a b)
+       (if (or (string=? a "") (string=? a "."))
+           b
+           (string-append a "/" b)))
+     (define (library-name-part->string part)
+       (if (symbol? part) (symbol->string part) part))
+     (define (library-source-path name)
+       (let loop ((parts name) (dir out-dir))
+         (cond
+          ((null? parts) dir)
+          ((null? (cdr parts))
+           (path-join dir
+                      (string-append
+                       (library-name-part->string (car parts))
+                       (if r6rs? ".sls" ".sld"))))
+          (else
+           (loop (cdr parts)
+                 (path-join dir (library-name-part->string (car parts))))))))
+     (define (write-library name expr)
+       (emit 'kons::library name expr)
+       (add-library-path out-dir)
+       (library-source-path name))
+     (define (emit name . values)
+       (write (cons name values))
+       (newline))
+     (define (rerun-on-change . paths)
+       (apply emit 'kons::rerun-on-change paths))
+     (define (add-load-path . paths)
+       (apply emit 'kons::load-path paths))
+     (define (add-library-path . paths)
+       (apply emit 'kons::library-path paths))
+     (define (add-ld-library-path . paths)
+       (apply emit 'kons::ld-library-path paths))
+     (define (add-dyld-library-path . paths)
+       (apply emit 'kons::dyld-library-path paths))
+     (define (add-dlopen-path . paths)
+       (apply emit 'kons::dlopen-path paths))
+     (define (add-ld-preload . paths)
+       (apply emit 'kons::ld-preload paths))
+     (define (add-ld-preload-path . paths)
+       (apply emit 'kons::ld-preload-path paths))
+     (define (set-runtime-env name value)
+       (emit 'kons::env name value))
+     (define (add-runtime-env-path name . paths)
+       (apply emit 'kons::env-path name paths))
+     (define (link-search . paths)
+       (apply emit 'kons::link-search paths))
+     (define (link-lib . libs)
+       (apply emit 'kons::link-lib libs))
+     (define (output key value)
+       (emit 'kons::output key value))
+     (define (metadata key value)
+       (emit 'kons::metadata key value))))
+
+(define (directive-values-for-name build-root directives name path?)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) name)
+         (if path?
+             (output-directive-paths build-root directive)
+             (directive-string-values directive))
+         '()))
+   directives))
+
+(define (paired-directive-values directives name)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) name)
+         (let ((args (directive-string-values directive)))
+           (if (and (pair? args) (pair? (cdr args)))
+               (list (list (car args) (cadr args)))
+               '()))
+         '()))
+   directives))
+
+(define (env-path-directive-values directives)
+  (append-map
+   (lambda (directive)
+     (if (eq? (directive-name directive) 'kons::env-path)
+         (let ((args (directive-string-values directive)))
+           (if (and (pair? args) (pair? (cdr args)))
+               (list (cons (car args) (cdr args)))
+               '()))
+         '()))
+   directives))
+
+(define (artifact-helper-data build-root directives)
+  `((directives ,@directives)
+    (load-paths
+     ,@(append
+        (directive-values-for-name build-root directives 'kons::load-path #t)
+        (directive-values-for-name build-root directives 'kons::library-path #t)))
+    (library-paths ,@(directive-values-for-name build-root directives 'kons::library-path #t))
+    (ld-library-paths ,@(directive-values-for-name build-root directives 'kons::ld-library-path #t))
+    (dyld-library-paths ,@(directive-values-for-name build-root directives 'kons::dyld-library-path #t))
+    (dlopen-paths ,@(directive-values-for-name build-root directives 'kons::dlopen-path #t))
+    (ld-preloads ,@(directive-values-for-name build-root directives 'kons::ld-preload #t))
+    (ld-preload-paths ,@(directive-values-for-name build-root directives 'kons::ld-preload-path #t))
+    (link-search-paths ,@(directive-values-for-name build-root directives 'kons::link-search #t))
+    (link-libs ,@(directive-values-for-name build-root directives 'kons::link-lib #f))
+    (outputs ,@(paired-directive-values directives 'kons::output))
+    (metadata ,@(paired-directive-values directives 'kons::metadata))
+    (env ,@(paired-directive-values directives 'kons::env))
+    (env-paths ,@(env-path-directive-values directives))))
+
+(define (artifact-field data name)
+  (let ((field (assq name data)))
+    (if field (cdr field) '())))
+
+(define (r7rs-artifact-helper-library name data)
+  `(define-library ,name
+     (export directives load-paths library-paths ld-library-paths
+             dyld-library-paths dlopen-paths ld-preloads
+             ld-preload-paths link-search-paths link-libs
+             outputs metadata env env-paths)
+     (import (scheme base))
+     (begin
+       (define directives ',(artifact-field data 'directives))
+       (define load-paths ',(artifact-field data 'load-paths))
+       (define library-paths ',(artifact-field data 'library-paths))
+       (define ld-library-paths ',(artifact-field data 'ld-library-paths))
+       (define dyld-library-paths ',(artifact-field data 'dyld-library-paths))
+       (define dlopen-paths ',(artifact-field data 'dlopen-paths))
+       (define ld-preloads ',(artifact-field data 'ld-preloads))
+       (define ld-preload-paths ',(artifact-field data 'ld-preload-paths))
+       (define link-search-paths ',(artifact-field data 'link-search-paths))
+       (define link-libs ',(artifact-field data 'link-libs))
+       (define outputs ',(artifact-field data 'outputs))
+       (define metadata ',(artifact-field data 'metadata))
+       (define env ',(artifact-field data 'env))
+       (define env-paths ',(artifact-field data 'env-paths)))))
+
+(define (r6rs-artifact-helper-library name data)
+  `(library ,name
+     (export directives load-paths library-paths ld-library-paths
+             dyld-library-paths dlopen-paths ld-preloads
+             ld-preload-paths link-search-paths link-libs
+             outputs metadata env env-paths)
+     (import (rnrs))
+     (define directives ',(artifact-field data 'directives))
+     (define load-paths ',(artifact-field data 'load-paths))
+     (define library-paths ',(artifact-field data 'library-paths))
+     (define ld-library-paths ',(artifact-field data 'ld-library-paths))
+     (define dyld-library-paths ',(artifact-field data 'dyld-library-paths))
+     (define dlopen-paths ',(artifact-field data 'dlopen-paths))
+     (define ld-preloads ',(artifact-field data 'ld-preloads))
+     (define ld-preload-paths ',(artifact-field data 'ld-preload-paths))
+     (define link-search-paths ',(artifact-field data 'link-search-paths))
+     (define link-libs ',(artifact-field data 'link-libs))
+     (define outputs ',(artifact-field data 'outputs))
+     (define metadata ',(artifact-field data 'metadata))
+     (define env ',(artifact-field data 'env))
+     (define env-paths ',(artifact-field data 'env-paths))))
 
 (define (r6rs-library-output-path source-root name)
   (r6rs-library-source-path source-root name))
@@ -650,8 +1294,29 @@
    (r6rs-library-output-path build-root name)
    (r6rs-feature-helper-library name active-features)))
 
+(define (write-build-helper-library! build-root)
+  (write-library-expr!
+   (library-source-path build-root '(kons build))
+   (r7rs-build-helper-library))
+  (write-library-expr!
+   (r6rs-library-output-path build-root '(kons build))
+   (r6rs-build-helper-library)))
+
+(define (write-artifact-helper-library! manifest build-root)
+  (let* ((name (artifact-helper-library-name manifest))
+         (data (artifact-helper-data
+                build-root
+                (build-hook-output-directives manifest build-root))))
+    (write-library-expr!
+     (library-source-path build-root name)
+     (r7rs-artifact-helper-library name data))
+    (write-library-expr!
+     (r6rs-library-output-path build-root name)
+     (r6rs-artifact-helper-library name data))))
+
 (define (write-feature-libraries! manifest features build-root)
   (let ((helper (feature-helper-library-name manifest)))
+    (write-build-helper-library! build-root)
     (write-feature-helper-library! build-root helper features)
     (for-each
      (lambda (feature)
@@ -666,7 +1331,8 @@
       (run-command (string-append "mkdir -p " (shell-quote dir)))
       (write-feature-libraries! manifest features dir)
       (when (has-build-hooks? manifest)
-        (run-build-hooks manifest cmd features dir)))))
+        (run-build-hooks manifest cmd features dir))
+      (write-artifact-helper-library! manifest dir))))
 
 (define (dependency-build-hook-source-roots manifest include-dev? features cmd dep-source-root dep-build-root)
   (let loop ((items (cdr (activation-source-roots-with-dependency-builds manifest include-dev? features cmd)))
@@ -699,7 +1365,8 @@
                     hook
                     srcs
                     dep-source-root))
-                 (effective-build-hooks dep-manifest))))))))))
+                 (effective-build-hooks dep-manifest))))
+            (write-artifact-helper-library! dep-manifest dep-build-root)))))))
 
 (define (run-dependency-build-hooks-if-needed! manifest include-dev? features cmd)
   (let ((roots (cdr (effective-activation-source-roots manifest include-dev? features cmd))))
@@ -1142,9 +1809,11 @@
       '()))
 
 (define (adapter-command-for-cmd manifest cmd scheme src script rest . maybe-install?)
-  (let ((mode (apply command-runtime-compile-mode manifest (active-features manifest cmd) cmd maybe-install?))
-        (compiled-roots (apply command-compiled-output-dirs manifest (active-features manifest cmd) cmd maybe-install?)))
-    (adapter-command scheme src script rest mode compiled-roots (command-selected-profile cmd))))
+  (let* ((features (active-features manifest cmd))
+         (mode (apply command-runtime-compile-mode manifest features cmd maybe-install?))
+         (compiled-roots (apply command-compiled-output-dirs manifest features cmd maybe-install?))
+         (command (adapter-command scheme src script rest mode compiled-roots (command-selected-profile cmd))))
+    (command-with-runtime-build-env manifest features cmd command)))
 
 (define (adapter-repl-command-for-cmd manifest cmd scheme src . maybe-install?)
   (let ((mode (apply command-runtime-compile-mode manifest (active-features manifest cmd) cmd maybe-install?))

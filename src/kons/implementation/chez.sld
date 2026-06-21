@@ -6,9 +6,9 @@
 (define chez-implementation-modes
   '(((id . chez)
      (implementation . chez)
-     (command . "scheme")
+     (commands . ("chez" "chezscheme" "scheme"))
      (version-argv . ("--version"))
-     (version-contains . "Chez Scheme")
+     (version-reject-contains . ("MIT/GNU Scheme"))
      (dialects . (chez r6rs))
      (standard . r6rs)
      (standard-argv . ())

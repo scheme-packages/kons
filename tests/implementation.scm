@@ -29,6 +29,26 @@
  'sagittarius-r6rs)
 
 (check-equal
+ "capy r6rs dialect mode"
+ (implementation-mode-id
+  (implementation-mode-for-dialects 'capy '(r6rs)))
+ 'capy-r6rs)
+
+(check-equal
+ "capy r6rs command"
+ (implementation-command-record
+  'capy-r6rs
+  '("src" "vendor")
+  "main.sps"
+  '()
+  'normal
+  '()
+  'debug)
+ '(command
+   (env)
+   (argv "capy" "--debug" "--r6rs" "-L" "src" "-A" "vendor" "-s" "main.sps" "--")))
+
+(check-equal
  "mosh r6rs command"
  (implementation-command-record
   'mosh
@@ -50,7 +70,7 @@
 (check-equal
  "chez command uses Chez Scheme executable"
  (implementation-command 'chez)
- "scheme")
+ "chez")
 
 (check-equal
  "mit command"
