@@ -332,6 +332,83 @@
          (implementation-mode-compile-kinds mode))
         '())))
 
+(define (package-declared-library-entries manifest)
+  (alist-ref (alist-ref manifest 'package '()) 'libraries '()))
+
+(define (same-kind-entry-name-in? kind name entries)
+  (let loop ((items entries))
+    (cond
+     ((null? items) #f)
+     ((and (eq? (caar items) kind)
+           (equal? (cadar items) name))
+      #t)
+     (else (loop (cdr items))))))
+
+(define (same-kind-entry-by-name kind name entries)
+  (let loop ((items entries))
+    (cond
+     ((null? items) #f)
+     ((and (eq? (caar items) kind)
+           (equal? (cadar items) name))
+      (car items))
+     (else (loop (cdr items))))))
+
+(define (compile-root-names manifest kind entries)
+  (cond
+   ((not (null? (package-declared-library-entries manifest))) #f)
+   ((same-kind-entry-name-in? kind (package-name manifest) entries)
+    (list (package-name manifest)))
+   (else #f)))
+
+(define (reachable-compile-entry-keys kind roots entries)
+  (let ((seen '()))
+    (define (seen? name)
+      (let loop ((items seen))
+        (cond
+         ((null? items) #f)
+         ((equal? (car items) name) #t)
+         (else (loop (cdr items))))))
+    (define (visit name)
+      (unless (seen? name)
+        (set! seen (cons name seen))
+        (let ((entry (same-kind-entry-by-name kind name entries)))
+          (when entry
+            (for-each
+             (lambda (import-name)
+               (when (same-kind-entry-by-name kind import-name entries)
+                 (visit import-name)))
+             (library-entry-imports entry))))))
+    (for-each visit roots)
+    seen))
+
+(define (compile-entry-reachable? entry reachable)
+  (let loop ((items reachable))
+    (cond
+     ((null? items) #f)
+     ((equal? (car items) (cadr entry)) #t)
+     (else (loop (cdr items))))))
+
+(define (compile-reachable-entries manifest entries)
+  (let loop ((items entries) (out '()) (cache '()))
+    (if (null? items)
+        (reverse out)
+        (let* ((entry (car items))
+               (kind (car entry))
+               (cached (assq kind cache))
+               (roots (if cached
+                          (cadr cached)
+                          (compile-root-names manifest kind entries)))
+               (reachable (if cached
+                              (cddr cached)
+                              (and roots
+                                   (reachable-compile-entry-keys kind roots entries))))
+               (cache (if cached cache (cons (cons kind (cons roots reachable)) cache))))
+          (loop (cdr items)
+                (if (or (not roots) (compile-entry-reachable? entry reachable))
+                    (cons entry out)
+                    out)
+                cache)))))
+
 (define (compiled-artifact-names-for-scheme/context manifest scheme context)
   (map cadr (compiled-artifact-entries-for-scheme/context manifest scheme context)))
 
@@ -354,11 +431,7 @@
 (define (compilable-source-root-records manifest features cmd . maybe-srcs)
   (let* ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
          (source-roots (apply compiler-source-roots manifest features cmd maybe-srcs))
-         ;; Compile planning only needs imports that create ordering edges between
-         ;; source libraries. Let the target compiler resolve cond-expand while
-         ;; compiling; probing implementation libraries here is expensive when
-         ;; Kons itself is running under Capy.
-         (context #f)
+         (context (compiler-library-discovery-context manifest cmd source-roots))
          (roots source-roots))
     (let loop ((roots (if (null? roots)
                           roots
@@ -368,7 +441,10 @@
        ((null? roots) (reverse out))
        ((source-root-package-manifest (car roots))
         => (lambda (source-manifest)
-             (let* ((entries (compiled-artifact-entries-for-scheme/context source-manifest scheme context))
+             (let* ((entries
+                     (compile-reachable-entries
+                      source-manifest
+                      (compiled-artifact-entries-for-scheme/context source-manifest scheme context)))
                     (names (map cadr entries)))
                (loop (cdr roots)
                      (if (null? names)

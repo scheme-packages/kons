@@ -483,15 +483,17 @@
                    manifest
                    (flatten-library-entries (package-libraries manifest))
                    context)))
-    (let loop ((items (dedupe-discovered-libraries
-                       (discovered-library-entries/context manifest context)))
-               (out declared))
-      (cond
-       ((null? items) out)
-       ((library-key-present? (library-key (car items)) declared)
-        (loop (cdr items) out))
-       (else
-        (loop (cdr items) (append out (list (car items)))))))))
+    (let ((entries
+           (let loop ((items (dedupe-discovered-libraries
+                              (discovered-library-entries/context manifest context)))
+                      (out declared))
+             (cond
+              ((null? items) out)
+              ((library-key-present? (library-key (car items)) declared)
+               (loop (cdr items) out))
+              (else
+               (loop (cdr items) (append out (list (car items)))))))))
+      (loadable-library-entries/context entries context))))
 
 (define (effective-package-libraries manifest)
   (effective-package-libraries/context manifest #f))
@@ -527,6 +529,29 @@
 
 (define (library-name-in-entries? kind name entries)
   (library-key-entry (cons kind name) entries))
+
+(define (library-import-available? kind name entries context)
+  (or (library-name-in-entries? kind name entries)
+      (let ((available? (discovery-context-library-available? context)))
+        (and available? (available? name)))))
+
+(define (library-entry-loadable? entry entries context)
+  (or (not context)
+      (let ((kind (car entry)))
+        (let loop ((imports (filter symbol-list-value? (library-entry-imports entry))))
+          (cond
+           ((null? imports) #t)
+           ((library-import-available? kind (car imports) entries context)
+            (loop (cdr imports)))
+           (else #f))))))
+
+(define (loadable-library-entries/context entries context)
+  (if context
+      (filter
+       (lambda (entry)
+         (library-entry-loadable? entry entries context))
+       entries)
+      entries))
 
 (define (same-kind-library-imports entry entries)
   (filter

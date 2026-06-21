@@ -7,7 +7,7 @@
   '(((id . chibi)
      (implementation . chibi)
      (command . "chibi-scheme")
-     (version-argv . ("-h"))
+     (version-argv . ("-V"))
      (dialects . (r7rs))
      (standard . r7rs)
      (standard-argv . ())
