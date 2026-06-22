@@ -241,18 +241,20 @@
 (define (lock-resolution-equivalent? old-lock new-lock)
   (and (equal? (lock-package-entries old-lock)
                (lock-package-entries new-lock))
+       (equal? (lock-section old-lock 'edges)
+               (lock-section new-lock 'edges))
        (equal? (lock-section old-lock 'overrides)
                (lock-section new-lock 'overrides))))
 
 (define (lock-resolution-current? manifest features cmd lock)
   (and (lock-root-matches? manifest features cmd lock)
-       (lock-resolution-equivalent? lock (make-lock manifest features cmd #t))))
+       (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))
 
 (define (activation-lock-compatible? manifest features include-dev? cmd lock)
   (and (lock-root-matches? manifest features cmd lock)
-       (or (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev?))
+       (or (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev? lock))
            (and (not include-dev?)
-                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t))))))
+                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))))
 
 (define (activation-lock-fast-ready? manifest features include-dev? cmd lock offline?)
   (and (lock-root-matches? manifest features cmd lock)

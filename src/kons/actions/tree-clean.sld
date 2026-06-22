@@ -3,6 +3,7 @@
           package-feature-names
           tree-dependency-from-live
           tree-dependency-from-lock-entry
+          tree-edge-from-lock-entry
           matching-lock
           store-token-dir
           metadata-token-dir
@@ -108,10 +109,28 @@
       (commit ,(lock-entry-ref entry 'commit #f))
       ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
       ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))))
+   ((eq? (lock-entry-type entry) 'registry)
+    `(dependency
+      (scope ,(lock-entry-ref entry 'scope 'runtime))
+      (type registry)
+      (name ,(lock-entry-ref entry 'name '()))
+      (req ,(lock-entry-ref entry 'req "*"))
+      (version ,(lock-entry-ref entry 'version ""))
+      (registry ,(lock-entry-ref entry 'registry "default"))
+      (checksum ,(lock-entry-ref entry 'checksum ""))
+      (id ,(lock-entry-ref entry 'id ""))))
    (else
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
       (type ,(lock-entry-type entry))))))
+
+(define (tree-edge-from-lock-entry entry)
+  `(edge
+    (from ,(lock-entry-ref entry 'from 'root))
+    (to ,(lock-entry-ref entry 'to ""))
+    (name ,(lock-entry-ref entry 'name '()))
+    (req ,(lock-entry-ref entry 'req "*"))
+    (kind ,(lock-entry-ref entry 'kind 'runtime))))
 
 (define (matching-lock manifest features cmd)
   (let ((path (project-lock-path manifest)))

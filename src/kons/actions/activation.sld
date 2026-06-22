@@ -84,7 +84,7 @@
           (unless (lock-materialized? stored include-dev?)
             (materialize-lock-sources manifest stored include-dev? offline? cmd)))
          ((lock-root-matches? manifest features cmd stored)
-          (let ((new-lock (make-lock manifest features cmd include-dev?)))
+          (let ((new-lock (make-lock manifest features cmd include-dev? stored)))
             (cond
              ((activation-lock-compatible? manifest features include-dev? cmd stored)
               (unless (lock-materialized? stored include-dev?)

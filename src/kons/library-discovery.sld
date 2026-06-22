@@ -13,6 +13,7 @@
           manifest-with-effective-libraries
           library-entry-path
           library-entry-imports
+          library-entry-exports
           library-key-entry
           r7rs-library-entry-name
           r6rs-library-entry-name
@@ -27,6 +28,7 @@
           guile-library-names
           guile-library-names/context)
   (import (scheme base)
+          (scheme cxr)
           (scheme file)
           (kons compat files)
           (kons util)
@@ -169,6 +171,12 @@
                     (assq 'imports (cddr entry)))))
     (if found (cdr found) '())))
 
+(define (library-entry-exports entry)
+  (let ((found (and (pair? (cdr entry))
+                    (pair? (cddr entry))
+                    (assq 'exports (cddr entry)))))
+    (if found (cdr found) '())))
+
 (define (make-library-discovery-context features library-available?)
   `((features . ,features)
     (library-available? . ,library-available?)))
@@ -260,6 +268,45 @@
          (else (loop (cdr sets) out))))
       '()))
 
+(define (symbol-append a b)
+  (string->symbol (string-append (symbol->string a) (symbol->string b))))
+
+(define (export-spec-identifiers spec)
+  (cond
+   ((symbol? spec) (list spec))
+   ((and (pair? spec) (eq? (car spec) 'rename))
+    (cond
+     ((and (pair? (cdr spec))
+           (pair? (cddr spec))
+           (symbol? (caddr spec))
+           (null? (cdddr spec)))
+      (list (caddr spec)))
+     (else
+      (let loop ((items (cdr spec)) (out '()))
+        (cond
+         ((null? items) (reverse out))
+         ((and (pair? (car items))
+               (pair? (cdar items))
+               (symbol? (cadar items)))
+          (loop (cdr items) (cons (cadar items) out)))
+         (else (loop (cdr items) out)))))))
+   ((and (pair? spec) (memq (car spec) '(only except)))
+    (append-map export-spec-identifiers (cdr spec)))
+   ((and (pair? spec)
+         (eq? (car spec) 'prefix)
+         (pair? (cdr spec))
+         (pair? (cddr spec))
+         (symbol? (caddr spec)))
+    (map (lambda (identifier)
+           (symbol-append (caddr spec) identifier))
+         (export-spec-identifiers (cadr spec))))
+   (else '())))
+
+(define (export-declaration-identifiers decl)
+  (if (and (pair? decl) (eq? (car decl) 'export))
+      (append-map export-spec-identifiers (cdr decl))
+      '()))
+
 (define (included-declaration-path base file)
   (if (absolute-path? file) file (path-join (dirname base) file)))
 
@@ -320,6 +367,45 @@
 (define (library-declaration-imports path decls)
   (library-declaration-imports/context path decls #f))
 
+(define (library-declaration-exports/context path decls context)
+  (let loop ((items decls) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((and (pair? (car items))
+           (eq? (caar items) 'cond-expand))
+      (loop (cdr items)
+            (append
+             (reverse
+              (library-declaration-exports/context
+               path
+               (selected-cond-expand-declarations (cdar items) context)
+               context))
+             out)))
+     ((and (pair? (car items))
+           (eq? (caar items) 'include-library-declarations))
+      (let include-loop ((files (cdar items)) (out out))
+        (cond
+         ((null? files) (loop (cdr items) out))
+         ((string? (car files))
+          (let ((include-path (included-declaration-path path (car files))))
+            (unless (file-exists? include-path)
+              (manifest-error "included library declarations not found" include-path))
+            (include-loop
+             (cdr files)
+             (append (reverse (library-declaration-exports/context
+                               include-path
+                               (read-library-exprs include-path)
+                               context))
+                     out))))
+         (else
+          (manifest-error "include-library-declarations entries must be strings" (car items))))))
+     (else
+      (loop (cdr items)
+            (append (reverse (export-declaration-identifiers (car items))) out))))))
+
+(define (library-declaration-exports path decls)
+  (library-declaration-exports/context path decls #f))
+
 (define (simple-module-imports expr)
   (let walk ((value expr) (out '()))
     (cond
@@ -346,6 +432,23 @@
             out
             (loop (cdr items) (walk (car items) out))))))))
 
+(define (keyword-symbol? value text)
+  (and (symbol? value)
+       (string=? (symbol->string value) text)))
+
+(define (simple-module-exports expr)
+  (let walk ((items expr) (out '()))
+    (cond
+     ((not (pair? items)) out)
+     ((and (pair? items)
+           (keyword-symbol? (car items) "#:export")
+           (pair? (cdr items))
+           (pair? (cadr items)))
+      (append (reverse (filter symbol? (cadr items))) out))
+     (else
+      (walk (cdr items)
+            (walk (car items) out))))))
+
 (define (library-entries-from-expr/context path expr context)
   (cond
    ((and (pair? expr)
@@ -354,28 +457,32 @@
          (symbol-list-value? (cadr expr)))
     (list `(r7rs ,(cadr expr)
                  (path ,path)
-                 (imports ,@(library-declaration-imports/context path (cddr expr) context)))))
+                 (imports ,@(library-declaration-imports/context path (cddr expr) context))
+                 (exports ,@(library-declaration-exports/context path (cddr expr) context)))))
    ((and (pair? expr)
          (eq? (car expr) 'library)
          (pair? (cdr expr))
          (symbol-list-value? (cadr expr)))
     (list `(r6rs ,(cadr expr)
                  (path ,path)
-                 (imports ,@(library-declaration-imports/context path (cddr expr) context)))))
+                 (imports ,@(library-declaration-imports/context path (cddr expr) context))
+                 (exports ,@(library-declaration-exports/context path (cddr expr) context)))))
    ((and (pair? expr)
          (eq? (car expr) 'define-module)
          (pair? (cdr expr))
          (symbol-list-value? (cadr expr)))
     (list `(guile ,(cadr expr)
                   (path ,path)
-                  (imports ,@(reverse (simple-module-imports expr))))))
+                  (imports ,@(reverse (simple-module-imports expr)))
+                  (exports ,@(reverse (simple-module-exports expr))))))
    ((and (pair? expr)
          (eq? (car expr) 'define-module)
          (pair? (cdr expr))
          (symbol? (cadr expr)))
     (list `(gauche ,(cadr expr)
                    (path ,path)
-                   (imports ,@(reverse (simple-module-imports expr))))))
+                   (imports ,@(reverse (simple-module-imports expr)))
+                   (exports ,@(reverse (simple-module-exports expr))))))
    (else '())))
 
 (define (library-entries-from-expr path expr)
@@ -434,6 +541,13 @@
         ,@(remove-library-property 'imports (cddr entry))
         (imports ,@imports))))
 
+(define (library-entry-with-exports entry exports)
+  (if (null? exports)
+      entry
+      `(,(car entry) ,(cadr entry)
+        ,@(remove-library-property 'exports (cddr entry))
+        (exports ,@exports))))
+
 (define (merge-library-entry-metadata declared discovered)
   (let* ((entry (if (library-entry-ref declared 'path #f)
                     declared
@@ -441,8 +555,11 @@
                      declared
                      'path
                      (library-entry-path "" discovered))))
-         (imports (library-entry-imports discovered)))
-    (library-entry-with-imports entry imports)))
+         (imports (library-entry-imports discovered))
+         (exports (library-entry-exports discovered)))
+    (library-entry-with-exports
+     (library-entry-with-imports entry imports)
+     exports)))
 
 (define (discovered-entry-for-declared source-root entry context)
   (let ((path (library-entry-path source-root entry)))
@@ -499,7 +616,13 @@
   (effective-package-libraries/context manifest #f))
 
 (define (public-library-entry entry)
-  `(,(car entry) ,(cadr entry)))
+  `(,(car entry) ,(cadr entry)
+    ,@(let ((path (library-entry-ref entry 'path #f)))
+        (if path `((path ,path)) '()))
+    ,@(let ((imports (library-entry-imports entry)))
+        (if (null? imports) '() `((imports ,@imports))))
+    ,@(let ((exports (library-entry-exports entry)))
+        (if (null? exports) '() `((exports ,@exports))))))
 
 (define (effective-public-package-libraries manifest)
   (map public-library-entry (effective-package-libraries manifest)))

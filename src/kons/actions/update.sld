@@ -22,7 +22,7 @@
          (features (active-features manifest cmd))
          (lock-path (project-lock-path manifest))
          (old-lock (read-existing-lock manifest))
-         (new-lock (make-lock manifest features cmd)))
+         (new-lock (make-lock manifest features cmd #t old-lock)))
     (ensure-supported-active-features manifest features cmd)
     (write-expr-file lock-path new-lock)
     (display "updated ")

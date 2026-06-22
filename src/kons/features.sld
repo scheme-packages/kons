@@ -20,8 +20,7 @@
           (kons manifest)
           (kons options)
           (kons dep git)
-          (kons dep path)
-          (kons dep registry))
+          (kons dep path))
 
   (begin
 (define (feature-form manifest name)
@@ -255,7 +254,14 @@
          (alist-ref incoming 'name '())
          (alist-ref existing 'version "*")
          (alist-ref incoming 'version "*")))
-  existing)
+  (let* ((features (dedupe-symbols
+                    (append (alist-ref existing 'features '())
+                            (alist-ref incoming 'features '()))))
+         (merged (alist-set existing 'features features)))
+    (alist-set merged
+               'optional
+               (and (alist-ref existing 'optional #f)
+                    (alist-ref incoming 'optional #f)))))
 
 (define (merge-dependency existing incoming)
   (case (alist-ref existing 'type #f)
@@ -372,14 +378,6 @@
          (file-exists? manifest-path)
          (parse-manifest manifest-path))))
 
-(define (registry-dependency-manifest dep cmd)
-  (let* ((offline? (or (command-flag? cmd "offline")
-                       (command-flag? cmd "frozen")))
-         (package-root (materialize-registry-dependency '() dep offline?))
-         (manifest-path (path-join package-root "kons.scm")))
-    (and (file-exists? manifest-path)
-         (parse-manifest manifest-path))))
-
 (define (dependency-manifest dep)
   (case (alist-ref dep 'type #f)
     ((path) (path-dependency-manifest dep))
@@ -388,9 +386,7 @@
     (else #f)))
 
 (define (nested-dependencies dep cmd)
-  (let ((manifest (if (eq? (alist-ref dep 'type #f) 'registry)
-                      (registry-dependency-manifest dep cmd)
-                      (dependency-manifest dep))))
+  (let ((manifest (dependency-manifest dep)))
     (if manifest
         (map (lambda (child)
                (with-dependency-context

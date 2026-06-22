@@ -201,7 +201,7 @@
 (define (fetch-lock-with-progress manifest lock include-dev? offline? cmd)
   (let ((entries (filter (lambda (entry)
                            (and (locked-entry-in-scope? entry include-dev?)
-                                (memq (lock-entry-type entry) '(path git))))
+                                (memq (lock-entry-type entry) '(path git registry))))
                          (lock-package-entries lock))))
     (if (null? entries)
         '()

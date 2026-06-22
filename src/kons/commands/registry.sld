@@ -4,6 +4,8 @@
           make-logout-command
           make-search-command
           make-info-command
+          make-provides-command
+          make-identifier-command
           make-yank-command
           make-unyank-command
           make-owner-command)
@@ -20,6 +22,7 @@
    (list 'option "index" 'help: "Registry API URL, accepted as a Cargo-compatible alias for --registry." 'value-help: "URL")
    (list 'option "token" 'help: "API token for this operation." 'value-help: "TOKEN")
    (list 'option "limit" 'help: "Limit search results." 'value-help: "N")
+   (list 'option "type" 'help: "Search type: package, library, identifier, or all." 'value-help: "TYPE")
    (list 'option "version" 'help: "Version to yank or unyank." 'value-help: "VERSION")
    (list 'option "vers" 'help: "Alias for --version." 'value-help: "VERSION")
    (list 'option "add" 'help: "Add an owner." 'value-help: "USER")
@@ -55,6 +58,18 @@
   (make-kons-command
    runner
    (kons-command-spec "info" cmd-info "Show registry package information." #f #f #f #f #f)
+   (registry-grammar)))
+
+(define (make-provides-command runner)
+  (make-kons-command
+   runner
+   (kons-command-spec "provides" cmd-provides "Find packages providing a library." #f #f #f #f #f)
+   (registry-grammar)))
+
+(define (make-identifier-command runner)
+  (make-kons-command
+   runner
+   (kons-command-spec "identifier" cmd-identifier "Find packages exporting an identifier." #f #f #f #f #f)
    (registry-grammar)))
 
 (define (make-yank-command runner)

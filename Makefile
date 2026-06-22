@@ -34,6 +34,9 @@ clean-test-cache:
 unit-tests: clean-test-cache
 	$(RUN_TEST) tests/jobs.scm
 	$(RUN_TEST) tests/implementation.scm
+	$(RUN_TEST) tests/library-discovery.scm
+	$(RUN_TEST) tests/lock.scm
+	$(RUN_TEST) tests/resolver.scm
 
 ci-unit: unit-tests
 

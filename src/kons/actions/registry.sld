@@ -4,6 +4,8 @@
           cmd-logout
           cmd-search
           cmd-info
+          cmd-provides
+          cmd-identifier
           cmd-yank
           cmd-unyank
           cmd-owner)
@@ -39,71 +41,6 @@
      ((string=? out "") (loop (cdr rest) (car rest)))
      (else (loop (cdr rest) (string-append out sep (car rest)))))))
 
-(define url-encode-code
-  "console.log(
-  encodeURIComponent(process.argv[1])
-);")
-
-(define registry-index-api-code
-  "const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-
-if (!data.api) process.exit(2);
-console.log(data.api);")
-
-(define search-results-code
-  "const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-const packages = data.packages || [];
-
-if (!packages.length) {
-  console.log('No packages found.');
-  process.exit(0);
-}
-
-for (const [index, p] of packages.entries()) {
-  const version = p.latest?.version ? `v${p.latest.version}` : 'unpublished';
-  const description = p.description || 'No description';
-  const owners = (p.owners || []).map((o) => o.username).filter(Boolean);
-  const keywords = (p.keywords || []).slice(0, 6);
-  const links = [
-    p.repository || p.repo ? `repo ${p.repository || p.repo}` : '',
-    p.homepage || p.site ? `site ${p.homepage || p.site}` : '',
-    p.documentation || p.docs ? `docs ${p.documentation || p.docs}` : '',
-  ].filter(Boolean);
-  const meta = [
-    owners.length ? `by ${owners.join(', ')}` : '',
-    keywords.length ? `#${keywords.join(' #')}` : '',
-  ].filter(Boolean).join('  ');
-
-  if (index) console.log('');
-  console.log(`${p.name}  ${version}`);
-  console.log(`  ${description}`);
-  if (meta) console.log(`  ${meta}`);
-  for (const link of links) console.log(`  ${link}`);
-}")
-
-(define package-info-code
-  "const fs = require('fs');
-const p = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).package;
-
-console.log(`${p.name} ${p.latest?.version || ''}`);
-if (p.description) console.log(p.description);
-if (p.repository) console.log(`repository: ${p.repository}`);
-
-const versions = (p.versions || [])
-  .map((v) => `${v.version}${v.yanked ? ' (yanked)' : ''}`)
-  .join(', ');
-console.log(`versions: ${versions}`);")
-
-(define owner-list-code
-  "const fs = require('fs');
-const p = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).package;
-
-for (const o of p.owners || []) {
-  console.log(`${o.username} ${o.displayName || ''}`);
-}")
-
 (define (default-package-name cmd)
   (name->string (package-name (parse-manifest (command-manifest-path cmd)))))
 
@@ -130,13 +67,201 @@ for (const o of p.owners || []) {
         (second items)
         (usage-error (string-append label " requires another argument")))))
 
-(define (url-encode s)
-  (capture-first-line
-    (string-append
-    "node -e "
-    (shell-quote url-encode-code)
-    " "
-    (shell-quote s))))
+(define (take-list items limit)
+  (let loop ((items items) (limit limit) (out '()))
+    (if (or (zero? limit) (null? items))
+        (reverse out)
+        (loop (cdr items) (- limit 1) (cons (car items) out)))))
+
+(define (json-string-list value)
+  (filter non-empty-string? (map (lambda (item) (if (string? item) item "")) (json-array->list value))))
+
+(define (json-object-list value)
+  (filter pair? (json-array->list value)))
+
+(define (json-version-label value)
+  (if (string=? value "") "" (string-append "v" value)))
+
+(define (display-package-result p)
+  (let* ((latest (json-ref p 'latest '()))
+         (latest-version (json-string-ref latest 'version ""))
+         (version (if (string=? latest-version "") "unpublished" (json-version-label latest-version)))
+         (description (let ((value (json-string-ref p 'description "")))
+                        (if (string=? value "") "No description" value)))
+         (owners (json-string-list
+                  (list->vector
+                   (map (lambda (owner) (json-string-ref owner 'username ""))
+                        (json-object-list (json-ref p 'owners '#()))))))
+         (keywords (take-list (json-string-list (json-ref p 'keywords '#())) 6))
+         (repository (json-string-ref p 'repository (json-string-ref p 'repo "")))
+         (homepage (json-string-ref p 'homepage (json-string-ref p 'site "")))
+         (documentation (json-string-ref p 'documentation (json-string-ref p 'docs "")))
+         (meta (filter non-empty-string?
+                       (list
+                        (if (null? owners) "" (string-append "by " (string-join owners ", ")))
+                        (if (null? keywords) "" (string-append "#" (string-join keywords " #")))))))
+    (display (json-string-ref p 'name ""))
+    (display "  ")
+    (displayln version)
+    (display "  ")
+    (displayln description)
+    (unless (null? meta)
+      (display "  ")
+      (displayln (string-join meta "  ")))
+    (unless (string=? repository "") (display "  repo ") (displayln repository))
+    (unless (string=? homepage "") (display "  site ") (displayln homepage))
+    (unless (string=? documentation "") (display "  docs ") (displayln documentation))))
+
+(define (display-search-result item)
+  (let ((type (json-string-ref item 'type "package")))
+    (cond
+     ((string=? type "package")
+      (display (let ((package (json-string-ref item 'package "")))
+                 (if (string=? package "") (json-string-ref item 'name "") package)))
+      (display "  ")
+      (displayln (json-version-label (json-string-ref item 'version "")))
+      (let ((description (json-string-ref item 'description "")))
+        (unless (string=? description "") (display "  ") (displayln description))))
+     ((string=? type "library")
+      (display (json-string-ref item 'name ""))
+      (display "  ")
+      (displayln (string-join
+                  (filter non-empty-string?
+                          (list (json-string-ref item 'kind "")
+                                (json-string-ref item 'dialect "")
+                                (json-string-ref item 'implementation "")))
+                  " "))
+      (display "  package ")
+      (display (json-string-ref item 'package ""))
+      (let ((version (json-version-label (json-string-ref item 'version ""))))
+        (unless (string=? version "") (display " ") (display version)))
+      (newline)
+      (let ((description (json-string-ref item 'description "")))
+        (unless (string=? description "") (display "  ") (displayln description))))
+     ((string=? type "identifier")
+      (displayln (let ((identifier (json-string-ref item 'identifier "")))
+                   (if (string=? identifier "") (json-string-ref item 'name "") identifier)))
+      (display "  library ")
+      (displayln (json-string-ref item 'library ""))
+      (display "  package ")
+      (display (json-string-ref item 'package ""))
+      (let ((version (json-version-label (json-string-ref item 'version ""))))
+        (unless (string=? version "") (display " ") (display version)))
+      (newline)))))
+
+(define (display-separated items display-one)
+  (let loop ((items items) (first? #t))
+    (unless (null? items)
+      (unless first? (newline))
+      (display-one (car items))
+      (loop (cdr items) #f))))
+
+(define (display-search-json json)
+  (let* ((data (registry-json-read json))
+         (results (json-object-list (json-ref data 'results '#())))
+         (packages (json-object-list (json-ref data 'packages '#()))))
+    (cond
+     ((pair? results) (display-separated results display-search-result))
+     ((pair? packages) (display-separated packages display-package-result))
+     (else (displayln "No results found.")))))
+
+(define (library-tags lib)
+  (string-join
+   (filter non-empty-string?
+           (list (json-string-ref lib 'kind "")
+                 (json-string-ref lib 'dialect "")
+                 (json-string-ref lib 'implementation "")))
+   " "))
+
+(define (display-library-line lib)
+  (display "  ")
+  (display (json-string-ref lib 'name ""))
+  (display " ")
+  (displayln (library-tags lib))
+  (let ((exports (take-list (json-string-list (json-ref lib 'exports '#())) 12)))
+    (unless (null? exports)
+      (display "    exports: ")
+      (displayln (string-join exports ", ")))))
+
+(define (display-package-info-json json)
+  (let* ((data (registry-json-read json))
+         (p (json-ref data 'package '()))
+         (latest (json-ref p 'latest '()))
+         (versions (json-object-list (json-ref p 'versions '#()))))
+    (display (json-string-ref p 'name ""))
+    (display " ")
+    (displayln (json-string-ref latest 'version ""))
+    (let ((description (json-string-ref p 'description "")))
+      (unless (string=? description "") (displayln description)))
+    (let ((repository (json-string-ref p 'repository "")))
+      (unless (string=? repository "") (display "repository: ") (displayln repository)))
+    (display "versions: ")
+    (displayln
+     (string-join
+      (map (lambda (version)
+             (string-append
+              (json-string-ref version 'version "")
+              (if (json-bool-ref version 'yanked) " (yanked)" "")))
+           versions)
+      ", "))
+    (let ((libraries (json-object-list (json-ref latest 'libraries '#()))))
+      (when (pair? libraries)
+        (displayln "libraries:")
+        (for-each display-library-line libraries)))))
+
+(define (display-library-provider lib)
+  (display (json-string-ref lib 'name ""))
+  (display "  ")
+  (displayln (library-tags lib))
+  (display "  package ")
+  (display (json-string-ref lib 'package ""))
+  (let ((version (json-version-label (json-string-ref lib 'version ""))))
+    (unless (string=? version "") (display " ") (display version)))
+  (newline)
+  (let ((path (json-string-ref lib 'path "")))
+    (unless (string=? path "") (display "  path ") (displayln path)))
+  (let ((exports (take-list (json-string-list (json-ref lib 'exports '#())) 12)))
+    (unless (null? exports)
+      (display "  exports: ")
+      (displayln (string-join exports ", ")))))
+
+(define (display-library-providers-json json)
+  (let ((libraries (json-object-list (json-ref (registry-json-read json) 'libraries '#()))))
+    (if (null? libraries)
+        (displayln "No providers found.")
+        (display-separated libraries display-library-provider))))
+
+(define (display-identifier-result item)
+  (displayln (let ((identifier (json-string-ref item 'identifier "")))
+               (if (string=? identifier "") (json-string-ref item 'name "") identifier)))
+  (display "  library ")
+  (displayln (json-string-ref item 'library ""))
+  (display "  package ")
+  (display (json-string-ref item 'package ""))
+  (let ((version (json-version-label (json-string-ref item 'version ""))))
+    (unless (string=? version "") (display " ") (display version)))
+  (newline))
+
+(define (display-identifiers-json json)
+  (let* ((data (registry-json-read json))
+         (identifiers (let ((items (json-object-list (json-ref data 'identifiers '#()))))
+                        (if (null? items)
+                            (json-object-list (json-ref data 'results '#()))
+                            items))))
+    (if (null? identifiers)
+        (displayln "No identifiers found.")
+        (display-separated identifiers display-identifier-result))))
+
+(define (display-owner-list-json json)
+  (let* ((data (registry-json-read json))
+         (p (json-ref data 'package '()))
+         (owners (json-object-list (json-ref p 'owners '#()))))
+    (for-each
+     (lambda (owner)
+       (display (json-string-ref owner 'username ""))
+       (display " ")
+       (displayln (json-string-ref owner 'displayName "")))
+     owners)))
 
 (define (display-registry-entry entry)
   (display (field-ref (cdr entry) 'name ""))
@@ -175,12 +300,9 @@ for (const o of p.owners || []) {
             (let* ((index-url (second items))
                    (name (if (pair? (cdr (cdr items))) (third items) default-registry-alias))
                    (json (registry-http-json index-url ""))
-                   (api (capture-first-line
-                         (string-append
-                          "node -e "
-                          (shell-quote registry-index-api-code)
-                          " "
-                          (shell-quote json)))))
+                   (api (json-string-ref (registry-json-read json) 'api "")))
+              (when (string=? api "")
+                (dependency-error "registry index response is missing api" index-url))
               (registry-add! name api (command-flag? cmd "default"))
               (display "registry indexed ")
               (display name)
@@ -207,28 +329,47 @@ for (const o of p.owners || []) {
   (let* ((query (string-join (rest-strings cmd) " "))
          (registry (registry-option cmd))
          (limit (command-string-option cmd "limit"))
+         (type (command-string-option cmd "type"))
          (json (registry-http-json registry
                                    (string-append "/api/v1/search?q="
                                                   (url-encode query)
                                                   (if limit
                                                       (string-append "&per_page=" (url-encode limit))
+                                                      "")
+                                                  (if type
+                                                      (string-append "&type=" (url-encode type))
                                                       "")))))
     (when (string=? query "")
       (usage-error "search requires a query"))
-    (run-command (string-append "node -e "
-                                (shell-quote search-results-code)
-                                " "
-                                (shell-quote json)))))
+    (display-search-json json)))
 
 (define (cmd-info cmd)
   (let* ((name (first-rest cmd "info"))
          (registry (registry-option cmd))
          (json (registry-http-json registry
                                    (string-append "/api/v1/packages/" (url-encode name)))))
-    (run-command (string-append "node -e "
-                                (shell-quote package-info-code)
-                                " "
-                                (shell-quote json)))))
+    (display-package-info-json json)))
+
+(define (cmd-provides cmd)
+  (let* ((library (first-rest cmd "provides"))
+         (registry (registry-option cmd))
+         (json (registry-http-json registry
+                                   (string-append "/api/v1/libraries/" (url-encode library)))))
+    (display-library-providers-json json)))
+
+(define (cmd-identifier cmd)
+  (let* ((query (string-join (rest-strings cmd) " "))
+         (registry (registry-option cmd))
+         (limit (command-string-option cmd "limit"))
+         (json (registry-http-json registry
+                                   (string-append "/api/v1/identifiers?q="
+                                                  (url-encode query)
+                                                  (if limit
+                                                      (string-append "&limit=" (url-encode limit))
+                                                      "")))))
+    (when (string=? query "")
+      (usage-error "identifier requires a query"))
+    (display-identifiers-json json)))
 
 (define (yank-parts cmd unyank?)
   (let* ((items (rest-strings cmd))
@@ -290,10 +431,7 @@ for (const o of p.owners || []) {
      ((string=? action "list")
       (let ((json (registry-http-json registry
                                       (string-append "/api/v1/packages/" (url-encode name)))))
-        (run-command (string-append "node -e "
-                                    (shell-quote owner-list-code)
-                                    " "
-                                    (shell-quote json)))))
+        (display-owner-list-json json)))
      ((or (string=? action "add") (string=? action "remove"))
       (unless user (usage-error "owner add/remove requires username"))
       (registry-http-action/token

@@ -38,7 +38,10 @@
            (source lockfile)
            (dependencies
             ,@(map tree-dependency-from-lock-entry
-                   (lock-package-entries lock)))))
+                   (lock-package-entries lock)))
+           (edges
+            ,@(map tree-edge-from-lock-entry
+                   (lock-edge-entries lock)))))
         (writeln
          `(tree
            (root

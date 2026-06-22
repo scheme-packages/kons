@@ -120,9 +120,10 @@ Remove and update:
 
 ```sh
 kons remove local/lib
-kons update          # resolve deps and write kons.lock
-kons fetch           # download missing deps
-kons fetch --plan    # show what will happen
+kons update           # resolve deps and write kons.lock
+kons update --upgrade # update compatible registry deps too
+kons fetch            # download missing deps
+kons fetch --plan     # show what will happen
 ```
 
 Use `--dev` for dev dependencies:
@@ -150,6 +151,8 @@ Then users can search by keyword:
 
 ```sh
 kons search parser
+kons search "(example lib)" --type library
+kons search parse-token --type identifier
 ```
 
 ## Lockfile and offline mode
@@ -160,7 +163,11 @@ kons build --offline # do not fetch missing deps
 kons build --frozen  # locked + offline
 ```
 
-Use these in CI when you want repeatable builds.
+Registry dependencies are resolved transitively. `kons.lock` records every
+resolved registry package and the dependency edges between them. A plain
+`kons update` preserves locked registry versions that still satisfy the manifest
+and transitive constraints; use `kons update --upgrade` to select newer
+compatible versions. Use these flags in CI when you want repeatable builds.
 
 ## Registry commands
 
@@ -177,6 +184,9 @@ Search and inspect packages:
 
 ```sh
 kons search parser --limit 10
+kons search parser --type all
+kons provides example/base
+kons identifier parse-token
 kons info example/base
 kons tree
 kons resolve

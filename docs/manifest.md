@@ -58,6 +58,10 @@ Supported forms:
 - R6RS `library` in `.sls` and `.scm`
 - simple module declarations in `.scm`
 
+kons records discovered imports and common export forms in metadata. Published
+packages send that library and identifier metadata to the registry so users can
+search by package, library, or exported identifier.
+
 If you do not want scanning:
 
 ```scheme
@@ -84,6 +88,12 @@ Registry dependency:
 ```
 
 The `registry` field can be skipped when you use the default registry.
+
+Registry dependencies are solved transitively. When package A depends on package
+B and B depends on package C, `kons update` records both B and C in `kons.lock`
+with dependency edges. A plain `kons update` keeps locked registry versions when
+they still satisfy all constraints; `kons update --upgrade` selects newer
+compatible versions.
 
 Path dependency:
 

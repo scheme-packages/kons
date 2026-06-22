@@ -268,9 +268,9 @@
 	       (equal? (lock-root-features lock) features)
 	       (or (command-flag? cmd "offline")
 	           (command-flag? cmd "frozen")
-	           (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev?))
+	           (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev? lock))
 	           (and (not include-dev?)
-	                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t))))))
+	                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))))
 
   (define (lock-section lock name)
     (let ((section (and (pair? lock) (assq name (cdr lock)))))
@@ -279,6 +279,8 @@
   (define (lock-resolution-equivalent? old-lock new-lock)
     (and (equal? (lock-package-entries old-lock)
                  (lock-package-entries new-lock))
+         (equal? (lock-section old-lock 'edges)
+                 (lock-section new-lock 'edges))
          (equal? (lock-section old-lock 'overrides)
                  (lock-section new-lock 'overrides))))
 

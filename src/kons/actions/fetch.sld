@@ -41,7 +41,7 @@
             (lockfile-error "kons.lock missing; run `kons update` first"))
           (let* ((new-lock (and (not offline?)
                                 (not locked?)
-                                (make-lock manifest features cmd)))
+                                (make-lock manifest features cmd #t stored)))
                  (active-lock
                   (cond
                    ((not stored) new-lock)
@@ -63,8 +63,8 @@
                             "updated kons.lock for fetch"
                             "created kons.lock for fetch"))
               (ui-status-done "wrote lockfile" lock-path))
-            (let ((paths (if offline?
-                             (fetch-lock-with-progress manifest active-lock #t #t cmd)
+            (let ((paths (if (or offline? locked?)
+                             (fetch-lock-with-progress manifest active-lock #t offline? cmd)
                              (fetch-with-progress manifest features #t #f cmd))))
               (ui-status "preparing dependency build hooks")
               (run-dependency-build-hooks-if-needed! manifest #t features cmd)

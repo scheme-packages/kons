@@ -26,9 +26,11 @@ const state = {
   meta: null,
   user: null,
   packages: [],
+  results: [],
   total: 0,
   route: null,
   current: null,
+  currentDependents: [],
 };
 
 init();
@@ -47,6 +49,7 @@ function bindEvents() {
   $("search-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter") search();
   });
+  $("search-type").addEventListener("change", search);
   $("refresh-button").addEventListener("click", refreshCurrent);
   window.addEventListener("hashchange", handleRoute);
 }
@@ -102,12 +105,14 @@ function showView(view) {
 async function search() {
   const list = $("results");
   const q = $("search-input").value.trim();
+  const type = $("search-type").value || "package";
   list.innerHTML = skeletonRows(5);
   $("result-count").textContent = "Searching…";
   try {
     const query = encodeURIComponent(q);
-    const data = await api(`/api/v1/search?q=${query}`);
+    const data = await api(`/api/v1/search?q=${query}&type=${encodeURIComponent(type)}`);
     state.packages = data.packages;
+    state.results = data.results || [];
     state.total = data.total;
     renderResults();
   } catch (error) {
@@ -119,12 +124,89 @@ async function search() {
 
 function renderResults() {
   const results = $("results");
-  $("result-count").innerHTML = `<strong>${state.total}</strong> package${state.total === 1 ? "" : "s"}`;
+  const type = $("search-type").value || "package";
+  const typedResults = type === "package" ? [] : state.results;
+  const count = type === "package" ? state.total : typedResults.length;
+  $("result-count").innerHTML = `<strong>${count}</strong> ${resultTypeLabel(type, count)}`;
+  if (type !== "package") {
+    if (!typedResults.length) {
+      results.innerHTML = emptyPackagesHtml();
+      return;
+    }
+    results.innerHTML = typedResults.map(typedResultRowHtml).join("");
+    bindTypedResultRows(results);
+    return;
+  }
   if (!state.packages.length) {
     results.innerHTML = emptyPackagesHtml();
     return;
   }
   results.innerHTML = state.packages.map(resultRowHtml).join("");
+  results.querySelectorAll("[data-pkg]").forEach((row) => {
+    row.addEventListener("click", () => {
+      location.hash = `#/pkg/${encodeURIComponent(row.dataset.pkg)}`;
+    });
+  });
+}
+
+function resultTypeLabel(type, count) {
+  const singular = type === "library" ? "library result"
+    : type === "identifier" ? "identifier result"
+      : type === "all" ? "result"
+        : "package";
+  const plural = type === "library" ? "library results"
+    : type === "identifier" ? "identifier results"
+      : type === "all" ? "results"
+        : "packages";
+  return count === 1 ? singular : plural;
+}
+
+function typedResultRowHtml(item) {
+  if (item.type === "package") {
+    return `
+      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package || item.name)}">
+        <span class="result-main">
+          <span class="result-top">
+            <span class="result-name">${packagePathHtml(item.package || item.name)}</span>
+            <span class="version-badge">${item.version ? `v${escapeHtml(item.version)}` : "package"}</span>
+          </span>
+          <span class="result-desc">${escapeHtml(item.description || "No description")}</span>
+        </span>
+      </button>
+    `;
+  }
+  if (item.type === "library") {
+    return `
+      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package)}">
+        <span class="result-main">
+          <span class="result-top">
+            <span class="result-name">${escapeHtml(item.name)}</span>
+            <span class="version-badge">${escapeHtml(item.kind || "library")}</span>
+          </span>
+          <span class="result-desc">Provided by ${escapeHtml(item.package)}${item.version ? ` v${escapeHtml(item.version)}` : ""}</span>
+          <span class="result-sub">${escapeHtml(item.description || "")}</span>
+        </span>
+      </button>
+    `;
+  }
+  if (item.type === "identifier") {
+    return `
+      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package)}">
+        <span class="result-main">
+          <span class="result-top">
+            <span class="result-name">${escapeHtml(item.identifier || item.name)}</span>
+            <span class="version-badge">identifier</span>
+          </span>
+          <span class="result-desc">${escapeHtml(item.library || "")}</span>
+          <span class="result-sub">Exported by ${escapeHtml(item.package)}${item.version ? ` v${escapeHtml(item.version)}` : ""}</span>
+        </span>
+      </button>
+    `;
+  }
+  return "";
+}
+
+function bindTypedResultRows(results) {
   results.querySelectorAll("[data-pkg]").forEach((row) => {
     row.addEventListener("click", () => {
       location.hash = `#/pkg/${encodeURIComponent(row.dataset.pkg)}`;
@@ -227,11 +309,16 @@ async function loadDetail(name) {
   const detail = $("package-detail");
   detail.innerHTML = skeletonRows(3);
   try {
-    const data = await api(`/api/v1/packages/${encodeURIComponentName(name)}`);
+    const [data, dependents] = await Promise.all([
+      api(`/api/v1/packages/${encodeURIComponentName(name)}`),
+      api(`/api/v1/packages/${encodeURIComponentName(name)}/dependents`),
+    ]);
     state.current = data.package;
+    state.currentDependents = dependents.dependents || [];
     renderPackageDetail();
   } catch (error) {
     state.current = null;
+    state.currentDependents = [];
     detail.innerHTML = `
       <div class="error-state">
         <span>${icon("warning")}</span>
@@ -266,6 +353,8 @@ function renderPackageDetail() {
   const exactCommand = latestVersion ? `kons add ${pkg.name} --version =${latestVersion}` : `kons add ${pkg.name}`;
   const indexCommand = `kons registry index ${state.meta?.baseUrl || ""}/index/config.json`;
   const latestDeps = latest?.dependencies || [];
+  const latestLibraries = latest?.libraries || [];
+  const dependents = state.currentDependents || [];
   const totalDownloads = Number(pkg.downloads || 0);
 
   const dialectChips = (latest?.dialects || []).map((d) => chip(d, "muted")).join("");
@@ -318,6 +407,13 @@ function renderPackageDetail() {
           </div>
 
           <div class="detail-section">
+            <h4>Dependents</h4>
+            <div class="dependency-list">
+              ${dependents.length ? dependents.slice(0, 12).map(dependentHtml).join("") : `<div class="muted" style="font-size:0.88rem">No packages depend on this package yet.</div>`}
+            </div>
+          </div>
+
+          <div class="detail-section">
             <h4>Metadata</h4>
             <div class="meta-list">
               ${metaRow("Versions", String(pkg.versions.length))}
@@ -328,6 +424,11 @@ function renderPackageDetail() {
               ${metaRow("Index path", `<code>${escapeHtml(pkg.indexPath)}</code>`)}
             </div>
           </div>
+        </div>
+
+        <div class="detail-section">
+          <h4>Libraries</h4>
+          ${latestLibraries.length ? `<div class="library-list">${latestLibraries.map(libraryHtml).join("")}</div>` : `<div class="muted" style="font-size:0.88rem">No library metadata published for the latest version.</div>`}
         </div>
 
         <div class="detail-section">
@@ -498,6 +599,32 @@ function dependencyHtml(dep) {
     <div class="dependency-row">
       <a href="#/pkg/${encodeURIComponent(dep.name)}" data-dependency="${escapeAttr(dep.name)}">${escapeHtml(dep.name)}</a>
       <span class="dependency-req">${escapeHtml(dep.req || "*")}${dep.kind && dep.kind !== "normal" ? ` · ${escapeHtml(dep.kind)}` : ""}</span>
+    </div>
+  `;
+}
+
+function dependentHtml(dep) {
+  return `
+    <div class="dependency-row">
+      <a href="#/pkg/${encodeURIComponent(dep.package)}" data-dependency="${escapeAttr(dep.package)}">${escapeHtml(dep.package)}</a>
+      <span class="dependency-req">${escapeHtml(dep.req || "*")}${dep.version ? ` · v${escapeHtml(dep.version)}` : ""}</span>
+    </div>
+  `;
+}
+
+function libraryHtml(library) {
+  const exports = (library.exports || []).slice(0, 24);
+  const imports = (library.imports || []).slice(0, 8).map((name) => Array.isArray(name) ? `(${name.join(" ")})` : String(name));
+  const tags = [library.kind, library.dialect, library.implementation].filter(Boolean);
+  return `
+    <div class="library-row">
+      <div class="library-head">
+        <strong>${escapeHtml(library.name)}</strong>
+        ${tags.map((tag) => chip(tag, "muted")).join("")}
+      </div>
+      <div class="library-path">${escapeHtml(library.path || "")}</div>
+      ${exports.length ? `<div class="library-meta"><span>exports</span>${exports.map((item) => `<code>${escapeHtml(item)}</code>`).join("")}</div>` : ""}
+      ${imports.length ? `<div class="library-meta"><span>imports</span>${imports.map((item) => `<code>${escapeHtml(item)}</code>`).join("")}</div>` : ""}
     </div>
   `;
 }

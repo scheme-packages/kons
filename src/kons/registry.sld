@@ -19,6 +19,7 @@
           registry-login!
           registry-logout!
           resolve-registry-version
+          registry-package-candidates
           download-registry-package!
           registry-http-json
           registry-http-json/token
@@ -26,11 +27,18 @@
           registry-http-upload/token
           registry-http-action
           registry-http-action/token
+          registry-json-read
+          json-ref
+          json-string-ref
+          json-bool-ref
+          json-array->list
+          url-encode
           json-string)
   (import (scheme base)
           (scheme file)
           (scheme process-context)
           (kons util)
+          (kons compat json)
           (kons names)
           (kons manifest))
 
@@ -38,58 +46,19 @@
 (define default-registry-alias "default")
 (define default-registry-url "https://kons.playxe.org")
 
-(define json-field-code
-  "const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-let value = data;
+(define (string-join xs sep)
+  (let loop ((rest xs) (out ""))
+    (cond
+     ((null? rest) out)
+     ((string=? out "") (loop (cdr rest) (car rest)))
+     (else (loop (cdr rest) (string-append out sep (car rest)))))))
 
-for (const key of process.argv[2].split('.')) {
-  value = value?.[key];
-}
-
-if (value === undefined || value === null) process.exit(2);
-if (typeof value === 'object') console.log(JSON.stringify(value));
-else console.log(String(value));")
-
-(define registry-error-message-code
-  "const fs = require('fs');
-const text = fs.existsSync(process.argv[1])
-  ? fs.readFileSync(process.argv[1], 'utf8')
-  : '';
-let data = null;
-
-try {
-  data = JSON.parse(text);
-} catch {}
-
-if (!data) {
-  console.log(text.trim() || 'registry request failed');
-  process.exit(0);
-}
-
-const lines = [];
-lines.push(data.message || data.error || 'registry request failed');
-
-const fields = data.details && data.details.fields;
-if (Array.isArray(fields)) {
-  for (const field of fields) {
-    lines.push(`${field.field}: ${field.message}`);
-  }
-} else if (data.details) {
-  lines.push(JSON.stringify(data.details));
-}
-
-console.log(lines.join('\\n'));")
-
-(define url-encode-code
-  "console.log(
-  encodeURIComponent(process.argv[1])
-);")
-
-(define json-string-code
-  "process.stdout.write(
-  JSON.stringify(process.argv[1])
-);")
+(define (read-all-text port)
+  (let loop ((chars '()))
+    (let ((ch (read-char port)))
+      (if (eof-object? ch)
+          (list->string (reverse chars))
+          (loop (cons ch chars))))))
 
 (define (registry-config-root)
   (path-join (kons-home) "config"))
@@ -319,23 +288,159 @@ console.log(lines.join('\\n'));")
     (let ((manifest (parse-manifest manifest-path)))
       (path-join root (package-source-path manifest)))))
 
-(define (node-json-field file path)
-  (capture-first-line
-   (string-append
-    "node -e "
-    (shell-quote json-field-code)
-    " "
-    (shell-quote file)
-    " "
-    (shell-quote path))))
+(define (registry-metadata-root registry)
+  (path-join
+   (path-join (registry-source-root) "metadata")
+   (safe-store-token (registry-url registry))))
+
+(define (registry-package-versions-cache-path registry name)
+  (path-join
+   (registry-metadata-root registry)
+   (string-append (safe-store-token name) "-versions.json")))
+
+(define (registry-metadata-cache-path? path)
+  (string-contains? path "/store/registry/metadata/"))
+
+(define (registry-json-read-error-message path kind)
+  (if (registry-metadata-cache-path? path)
+      (string-append "registry metadata JSON could not be " kind "; run `kons update` to refresh it")
+      (string-append "registry response JSON could not be " kind)))
+
+(define (registry-json-read path)
+  (guard (exn
+          ((json-error? exn)
+           (dependency-error (registry-json-read-error-message path "parsed")
+                             path
+                             (json-error-reason exn)))
+          ((error-object? exn)
+           (dependency-error (registry-json-read-error-message path "read")
+                             path
+                             (error-object-message exn))))
+    (call-with-input-file path json-read)))
+
+(define (json-ref object key default)
+  (let ((found (and (pair? object) (assq key object))))
+    (if found (cdr found) default)))
+
+(define (json-string-ref object key default)
+  (let ((value (json-ref object key default)))
+    (if (string? value) value default)))
+
+(define (json-bool-ref object key)
+  (let ((value (json-ref object key #f)))
+    (and value #t)))
+
+(define (json-array->list value)
+  (cond
+   ((vector? value) (vector->list value))
+   ((list? value) value)
+   (else '())))
+
+(define (registry-json-name name)
+  (map string->symbol (filter non-empty-string? (string-split name #\/))))
+
+(define (registry-json-symbol value default)
+  (cond
+   ((symbol? value) value)
+   ((and (string? value) (non-empty-string? value)) (string->symbol value))
+   (else default)))
+
+(define (registry-json-symbol-list value)
+  (map (lambda (item) (registry-json-symbol item 'unknown))
+       (filter (lambda (item)
+                 (or (symbol? item) (and (string? item) (non-empty-string? item))))
+               (json-array->list value))))
+
+(define (absolute-http-url? text)
+  (or (string-prefix? "http://" text)
+      (string-prefix? "https://" text)))
+
+(define (registry-version-download api package-name version row)
+  (let ((raw (let ((value (json-string-ref row 'downloadUrl "")))
+               (if (string=? value "")
+                   (json-string-ref row 'download "")
+                   value))))
+    (cond
+     ((and (not (string=? raw "")) (absolute-http-url? raw)) raw)
+     ((not (string=? raw "")) (string-append api raw))
+     (else
+      (string-append api "/api/v1/packages/" package-name "/" version "/download")))))
+
+(define (registry-json-dependency registry dep)
+  (let ((features (registry-json-symbol-list (json-ref dep 'features '#()))))
+    `((name . ,(registry-json-name (json-string-ref dep 'name "")))
+      (version . ,(let ((req (json-string-ref dep 'req "")))
+                    (if (string=? req "")
+                        (json-string-ref dep 'version "*")
+                        req)))
+      (registry . ,(let ((dep-registry (json-string-ref dep 'registry "")))
+                     (if (string=? dep-registry "") registry dep-registry)))
+      (kind . ,(registry-json-symbol (json-ref dep 'kind "runtime") 'runtime))
+      ,@(if (json-bool-ref dep 'optional) '((optional . #t)) '())
+      ,@(if (null? features) '() `((features . ,features))))))
+
+(define (registry-json-candidate registry api package-name row)
+  (let ((version (json-string-ref row 'version ""))
+        (features (registry-json-symbol-list (json-ref row 'features '#()))))
+    `((name . ,(registry-json-name package-name))
+      (version . ,version)
+      (registry . ,registry)
+      (checksum . ,(json-string-ref row 'checksum ""))
+      (download . ,(registry-version-download api package-name version row))
+      ,@(if (json-bool-ref row 'yanked) '((yanked . #t)) '())
+      ,@(if (null? features) '() `((features . ,features)))
+      (dependencies . ,(map (lambda (dep) (registry-json-dependency registry dep))
+                            (json-array->list (json-ref row 'dependencies '#())))))))
+
+(define (registry-json-candidates path registry api)
+  (let* ((data (registry-json-read path))
+         (package-name (json-string-ref data 'package ""))
+         (versions (json-array->list (json-ref data 'versions '#()))))
+    (map (lambda (row)
+           (registry-json-candidate registry api package-name row))
+         versions)))
+
+(define (json->display-string value)
+  (cond
+   ((not value) "")
+   ((string? value) value)
+   ((symbol? value) (symbol->string value))
+   ((number? value) (number->string value))
+   ((boolean? value) (if value "true" "false"))
+   (else (json-string value))))
+
+(define (registry-error-details-message details)
+  (let ((fields (json-array->list (json-ref details 'fields '#()))))
+    (cond
+     ((pair? fields)
+      (string-join
+       (map (lambda (field)
+              (string-append
+               (json-string-ref field 'field "")
+               ": "
+               (json-string-ref field 'message "")))
+            fields)
+       "\n"))
+     ((and details (not (json-null? details)))
+      (json->display-string details))
+     (else ""))))
 
 (define (registry-response-error-message file)
-  (capture-first-line
-   (string-append
-    "node -e "
-    (shell-quote registry-error-message-code)
-    " "
-    (shell-quote file))))
+  (if (file-exists? file)
+      (guard (exn
+              ((error-object? exn)
+               (let ((text (call-with-input-file file read-all-text)))
+                 (if (string=? text "") "registry request failed" text))))
+        (let* ((data (registry-json-read file))
+               (message (let ((value (json-string-ref data 'message "")))
+                          (if (string=? value "")
+                              (json-string-ref data 'error "registry request failed")
+                              value)))
+               (details (registry-error-details-message (json-ref data 'details #f))))
+          (if (string=? details "")
+              message
+              (string-append message "\n" details))))
+      "registry request failed"))
 
 (define (http-success-status? status)
   (and (>= status 200) (< status 300)))
@@ -406,13 +511,34 @@ console.log(lines.join('\\n'));")
 (define (registry-http-upload registry path json-file)
   (registry-http-upload/token registry path json-file #f))
 
+(define (unreserved-uri-byte? byte)
+  (or (and (>= byte (char->integer #\a)) (<= byte (char->integer #\z)))
+      (and (>= byte (char->integer #\A)) (<= byte (char->integer #\Z)))
+      (and (>= byte (char->integer #\0)) (<= byte (char->integer #\9)))
+      (= byte (char->integer #\-))
+      (= byte (char->integer #\_))
+      (= byte (char->integer #\.))
+      (= byte (char->integer #\~))))
+
+(define (hex-digit n)
+  (string-ref "0123456789ABCDEF" n))
+
+(define (percent-encoded-byte byte)
+  (string #\%
+          (hex-digit (quotient byte 16))
+          (hex-digit (remainder byte 16))))
+
 (define (url-encode s)
-  (capture-first-line
-   (string-append
-    "node -e "
-    (shell-quote url-encode-code)
-    " "
-    (shell-quote s))))
+  (let ((bytes (string->utf8 s)))
+    (let loop ((i 0) (out '()))
+      (if (= i (bytevector-length bytes))
+          (string-join (reverse out) "")
+          (let ((byte (bytevector-u8-ref bytes i)))
+            (loop (+ i 1)
+                  (cons (if (unreserved-uri-byte? byte)
+                            (string (integer->char byte))
+                            (percent-encoded-byte byte))
+                        out)))))))
 
 (define (resolve-registry-version dep)
   (let* ((registry (registry-ref (alist-ref dep 'registry #f)))
@@ -424,8 +550,11 @@ console.log(lines.join('\\n'));")
                                (url-encode name)
                                "/resolve?req="
                                (url-encode req))))
-         (version (node-json-field json "version"))
-         (checksum (node-json-field json "package.latest.checksum"))
+         (data (registry-json-read json))
+         (package (json-ref data 'package '()))
+         (latest (json-ref package 'latest '()))
+         (version (json-string-ref data 'version ""))
+         (checksum (json-string-ref latest 'checksum ""))
          (download (string-append (without-trailing-slash (registry-url registry))
                                   "/api/v1/packages/"
                                   name
@@ -436,6 +565,27 @@ console.log(lines.join('\\n'));")
       (checksum . ,checksum)
       (download . ,download)
       (registry . ,registry))))
+
+(define (registry-package-candidates registry name . maybe-offline?)
+  (let* ((registry (registry-ref registry))
+         (name-text (if (string? name) name (name->string name)))
+         (offline? (and (pair? maybe-offline?) (car maybe-offline?)))
+         (cache-path (registry-package-versions-cache-path registry name-text))
+         (json (cond
+                ((and offline? (file-exists? cache-path)) cache-path)
+                (offline?
+                 (dependency-error "registry metadata cache is missing and offline/frozen mode is active" name-text))
+                (else
+                 (let ((fresh (registry-http-json
+                               registry
+                               (string-append "/api/v1/packages/"
+                                              (url-encode name-text)
+                                              "/versions?includeYanked=1"))))
+                   (run-command (string-append "mkdir -p " (shell-quote (dirname cache-path))))
+                   (run-command (string-append "cp " (shell-quote fresh) " " (shell-quote cache-path)))
+                   fresh))))
+         (api (without-trailing-slash (registry-url registry))))
+    (registry-json-candidates json registry api)))
 
 (define (download-registry-package! registry name version checksum download offline?)
   (let* ((archive (registry-archive-path registry name version checksum))
@@ -459,11 +609,8 @@ console.log(lines.join('\\n'));")
       root))))
 
 (define (json-string value)
-  (capture-first-line
-   (string-append
-    "node -e "
-    (shell-quote json-string-code)
-    " "
-    (shell-quote value))))
+  (let ((port (open-output-string)))
+    (json-write value port)
+    (get-output-string port)))
 
   ))

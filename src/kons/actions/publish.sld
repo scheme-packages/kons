@@ -7,6 +7,7 @@
           (kons util)
           (kons names)
           (kons manifest)
+          (kons library-discovery)
           (kons registry)
           (kons options))
 
@@ -28,10 +29,96 @@
    (string-join (map (lambda (item) (json-string (symbol->string item))) strings) ",")
    "]"))
 
+(define (name-part->json part)
+  (cond
+   ((symbol? part) (json-string (symbol->string part)))
+   ((number? part) (json-string (number->string part)))
+   (else (json-string ""))))
+
+(define (name-list->json name)
+  (cond
+   ((symbol? name) (json-string (symbol->string name)))
+   ((pair? name)
+    (string-append
+     "["
+     (string-join (map name-part->json name) ",")
+     "]"))
+   (else "[]")))
+
+(define (library-name-display name)
+  (cond
+   ((symbol? name) (symbol->string name))
+   ((pair? name)
+    (string-append
+     "("
+     (string-join
+      (map (lambda (part)
+             (cond
+              ((symbol? part) (symbol->string part))
+              ((number? part) (number->string part))
+              (else "")))
+           name)
+      " ")
+     ")"))
+   (else "")))
+
+(define (library-name-key name)
+  (cond
+   ((symbol? name) (symbol->string name))
+   ((pair? name)
+    (string-join
+     (map (lambda (part)
+            (cond
+             ((symbol? part) (symbol->string part))
+             ((number? part) (number->string part))
+             (else "")))
+          name)
+     "/"))
+   (else "")))
+
+(define (library-entry-dialect kind)
+  (case kind
+    ((r7rs r6rs) (symbol->string kind))
+    (else "")))
+
+(define (library-entry-implementation kind)
+  (case kind
+    ((guile gauche) (symbol->string kind))
+    (else "")))
+
 (define (string-list->json strings)
   (string-append
    "["
    (string-join (map json-string strings) ",")
+   "]"))
+
+(define (library-entry-json entry)
+  (let ((kind (car entry))
+        (name (cadr entry))
+        (path (library-entry-path "" entry))
+        (imports (filter symbol-list-value? (library-entry-imports entry)))
+        (exports (filter symbol? (library-entry-exports entry))))
+    (string-append
+     "{"
+     "\"kind\":" (json-string (symbol->string kind)) ","
+     "\"name\":" (name-list->json name) ","
+     "\"displayName\":" (json-string (library-name-display name)) ","
+     "\"key\":" (json-string (library-name-key name)) ","
+     "\"path\":" (json-string path) ","
+     "\"implementation\":" (json-string (library-entry-implementation kind)) ","
+     "\"dialect\":" (json-string (library-entry-dialect kind)) ","
+     "\"imports\":["
+     (string-join (map name-list->json imports) ",")
+     "],"
+     "\"exports\":" (symbol-list->json exports)
+     "}")))
+
+(define (libraries-json manifest)
+  (string-append
+   "["
+   (string-join
+    (map library-entry-json (effective-package-libraries manifest))
+    ",")
    "]"))
 
 (define (registry-dependency-json dep kind)
@@ -163,6 +250,7 @@
       (display "\"dialects\":" out) (display (symbol-list->json (package-dialects manifest)) out) (display "," out)
       (display "\"features\":" out) (display (string-list->json (feature-names manifest)) out) (display "," out)
       (display "\"dependencies\":" out) (display (registry-dependencies-json manifest) out) (display "," out)
+      (display "\"libraries\":" out) (display (libraries-json manifest) out) (display "," out)
       (display "\"archiveBase64\":\"" out) (display archive-b64 out) (display "\"" out)
       (display "}" out))))
 

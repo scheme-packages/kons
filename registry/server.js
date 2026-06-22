@@ -229,6 +229,41 @@ CREATE TABLE IF NOT EXISTS dependencies (
   features_json TEXT NOT NULL DEFAULT '[]',
   FOREIGN KEY (package_name, version) REFERENCES versions(package_name, version) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS version_libraries (
+  package_name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  library_name TEXT NOT NULL,
+  library_key TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '',
+  imports_json TEXT NOT NULL DEFAULT '[]',
+  exports_json TEXT NOT NULL DEFAULT '[]',
+  implementation TEXT NOT NULL DEFAULT '',
+  dialect TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (package_name, version) REFERENCES versions(package_name, version) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_version_libraries_key_kind ON version_libraries(library_key, kind);
+CREATE INDEX IF NOT EXISTS idx_version_libraries_package_version ON version_libraries(package_name, version);
+CREATE TABLE IF NOT EXISTS version_identifiers (
+  package_name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  library_name TEXT NOT NULL,
+  identifier TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'export',
+  FOREIGN KEY (package_name, version) REFERENCES versions(package_name, version) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_version_identifiers_identifier ON version_identifiers(identifier);
+CREATE INDEX IF NOT EXISTS idx_version_identifiers_package_version ON version_identifiers(package_name, version);
+CREATE TABLE IF NOT EXISTS package_search_terms (
+  package_name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  term TEXT NOT NULL,
+  field TEXT NOT NULL,
+  FOREIGN KEY (package_name, version) REFERENCES versions(package_name, version) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_package_search_terms_term ON package_search_terms(term);
+CREATE INDEX IF NOT EXISTS idx_package_search_terms_package_version ON package_search_terms(package_name, version);
 CREATE TABLE IF NOT EXISTS auth_states (
   state TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -245,6 +280,8 @@ ensureColumn("packages", "keywords_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("versions", "readme", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("versions", "download_count", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("versions", "last_downloaded_at", "TEXT");
+ensureColumn("version_libraries", "implementation", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("version_libraries", "dialect", "TEXT NOT NULL DEFAULT ''");
 
 function splitList(value = "") {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
@@ -307,6 +344,12 @@ function publicBaseUrl(req) {
 
 function configuredPublicUrl() {
   return config.baseUrl ? config.baseUrl.replace(/\/$/, "") : "";
+}
+
+function packageDownloadUrl(name, version) {
+  const base = configuredPublicUrl();
+  const path = `/api/v1/packages/${encodeURIComponent(name)}/${encodeURIComponent(version)}/download`;
+  return base ? `${base}${path}` : path;
 }
 
 function randomToken(bytes = 32) {
@@ -736,6 +779,151 @@ function dependencyRows(name, version) {
   }));
 }
 
+function libraryRows(name, version) {
+  return db.prepare(`
+    SELECT kind, library_name, library_key, path, imports_json, exports_json, implementation, dialect
+    FROM version_libraries
+    WHERE package_name = ? AND version = ?
+    ORDER BY kind, library_key
+  `).all(name, version).map((row) => ({
+    kind: row.kind,
+    name: row.library_name,
+    key: row.library_key,
+    path: row.path || "",
+    imports: JSON.parse(row.imports_json || "[]"),
+    exports: JSON.parse(row.exports_json || "[]"),
+    implementation: row.implementation || "",
+    dialect: row.dialect || "",
+  }));
+}
+
+function insertLibraryRows(name, version, libraries) {
+  const libraryInsert = db.prepare(`
+    INSERT INTO version_libraries
+      (package_name, version, kind, library_name, library_key, path, imports_json, exports_json, implementation, dialect)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const identifierInsert = db.prepare(`
+    INSERT INTO version_identifiers
+      (package_name, version, kind, library_name, identifier, role)
+    VALUES (?, ?, ?, ?, ?, 'export')
+  `);
+  for (const library of libraries) {
+    libraryInsert.run(
+      name,
+      version,
+      library.kind,
+      library.name,
+      library.key,
+      library.path,
+      JSON.stringify(library.imports),
+      JSON.stringify(library.exports),
+      library.implementation,
+      library.dialect
+    );
+    for (const identifier of library.exports) {
+      identifierInsert.run(name, version, library.kind, library.name, identifier);
+    }
+  }
+}
+
+function addSearchTerm(out, seen, field, value) {
+  const term = String(value || "").trim().toLowerCase();
+  if (!term) return;
+  const key = `${field}:${term}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push({ field, term });
+}
+
+function collectSearchTerms({ name, description, keywords, dialects, features, dependencies, libraries }) {
+  const out = [];
+  const seen = new Set();
+  addSearchTerm(out, seen, "package", name);
+  for (const part of name.split("/")) addSearchTerm(out, seen, "package", part);
+  addSearchTerm(out, seen, "description", description);
+  for (const keyword of keywords || []) addSearchTerm(out, seen, "keyword", keyword);
+  for (const dialect of dialects || []) addSearchTerm(out, seen, "dialect", dialect);
+  for (const feature of features || []) addSearchTerm(out, seen, "feature", feature);
+  for (const dependency of dependencies || []) {
+    addSearchTerm(out, seen, "dependency", dependency.name);
+  }
+  for (const library of libraries || []) {
+    addSearchTerm(out, seen, "library", library.name);
+    addSearchTerm(out, seen, "library", library.key);
+    addSearchTerm(out, seen, "library-path", library.path);
+    addSearchTerm(out, seen, "implementation", library.implementation);
+    addSearchTerm(out, seen, "dialect", library.dialect);
+    for (const imported of library.imports || []) {
+      addSearchTerm(out, seen, "import", Array.isArray(imported) ? imported.join("/") : imported);
+    }
+    for (const identifier of library.exports || []) {
+      addSearchTerm(out, seen, "identifier", identifier);
+    }
+  }
+  return out;
+}
+
+function insertSearchTermRows(name, version, metadata) {
+  const insert = db.prepare(`
+    INSERT INTO package_search_terms (package_name, version, term, field)
+    VALUES (?, ?, ?, ?)
+  `);
+  for (const item of collectSearchTerms(metadata)) {
+    insert.run(name, version, item.term, item.field);
+  }
+}
+
+function jsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function backfillPackageSearchTerms() {
+  const missingRows = db.prepare(`
+    SELECT packages.name,
+           packages.keywords_json,
+           versions.version,
+           versions.description,
+           versions.dialects_json,
+           versions.features_json
+    FROM versions
+    JOIN packages ON packages.name = versions.package_name
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM package_search_terms
+      WHERE package_search_terms.package_name = versions.package_name
+        AND package_search_terms.version = versions.version
+    )
+    ORDER BY packages.name, versions.version
+  `).all();
+  if (missingRows.length === 0) return;
+
+  db.exec("BEGIN");
+  try {
+    for (const row of missingRows) {
+      insertSearchTermRows(row.name, row.version, {
+        name: row.name,
+        description: row.description,
+        keywords: jsonArray(row.keywords_json),
+        dialects: jsonArray(row.dialects_json),
+        features: jsonArray(row.features_json),
+        dependencies: dependencyRows(row.name, row.version),
+        libraries: libraryRows(row.name, row.version),
+      });
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  console.log(`[kons] backfilled package search terms for ${missingRows.length} version(s)`);
+}
+
 function ownerRows(name) {
   return db.prepare(`
     SELECT users.username, users.display_name, users.avatar_url
@@ -767,6 +955,7 @@ function publicPackage(name, viewer = null) {
     downloads: Number(row.download_count || 0),
     lastDownloadedAt: row.last_downloaded_at || null,
     dependencies: dependencyRows(name, row.version),
+    libraries: libraryRows(name, row.version),
   }));
   const owners = ownerRows(name);
   const latest = versions.find((version) => !version.yanked) || versions[0] || null;
@@ -1102,6 +1291,109 @@ function normalizeDependencies(raw, errors) {
   }).filter((dep) => dep && dep.name && dep.req);
 }
 
+function normalizeLibraryNameParts(value, field, errors) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      errors.push({ field, message: "must not be empty" });
+      return [];
+    }
+    return [trimmed];
+  }
+  if (!Array.isArray(value)) {
+    errors.push({ field, message: "must be an array of strings or a string" });
+    return [];
+  }
+  const parts = value.map((part, index) => {
+    const text = String(part || "").trim();
+    if (!text) {
+      errors.push({ field: `${field}[${index}]`, message: "must be a non-empty string" });
+      return "";
+    }
+    if (text.length > 120) {
+      errors.push({ field: `${field}[${index}]`, message: "must be 120 characters or less" });
+      return "";
+    }
+    return text;
+  }).filter(Boolean);
+  if (!parts.length) errors.push({ field, message: "must contain at least one part" });
+  return parts;
+}
+
+function libraryDisplayName(parts) {
+  return parts.length === 1 ? parts[0] : `(${parts.join(" ")})`;
+}
+
+function libraryKey(parts) {
+  return parts.join("/");
+}
+
+function normalizeLibraryNameList(value, field, errors) {
+  if (!Array.isArray(value)) {
+    errors.push({ field, message: "must be an array" });
+    return [];
+  }
+  return value.map((item, index) => {
+    const parts = normalizeLibraryNameParts(item, `${field}[${index}]`, errors);
+    return parts.length ? parts : null;
+  }).filter(Boolean);
+}
+
+function normalizeLibraryField(value, maxLength = 80) {
+  return typeof value === "string" ? value.trim().toLowerCase().slice(0, maxLength) : "";
+}
+
+function defaultLibraryDialect(kind) {
+  return ["r7rs", "r6rs"].includes(kind) ? kind : "";
+}
+
+function defaultLibraryImplementation(kind) {
+  return ["guile", "gauche"].includes(kind) ? kind : "";
+}
+
+function normalizeLibraries(raw, errors) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    errors.push({ field: "libraries", message: "must be an array" });
+    return [];
+  }
+  if (raw.length > 512) errors.push({ field: "libraries", message: "must contain at most 512 entries" });
+  return raw.slice(0, 512).map((library, index) => {
+    const prefix = `libraries[${index}]`;
+    if (!library || typeof library !== "object" || Array.isArray(library)) {
+      errors.push({ field: prefix, message: "must be an object" });
+      return null;
+    }
+
+    const kind = String(library.kind || "").trim();
+    if (!["r7rs", "r6rs", "guile", "gauche"].includes(kind)) {
+      errors.push({ field: `${prefix}.kind`, message: "must be r7rs, r6rs, guile, or gauche" });
+    }
+
+    const normalizedKind = ["r7rs", "r6rs", "guile", "gauche"].includes(kind) ? kind : "r7rs";
+    const nameParts = normalizeLibraryNameParts(library.name, `${prefix}.name`, errors);
+    const displayName = String(library.displayName || libraryDisplayName(nameParts)).trim().slice(0, 300);
+    const key = String(library.key || libraryKey(nameParts)).trim().slice(0, 300);
+    if (!key) errors.push({ field: `${prefix}.key`, message: "is required" });
+    const sourcePath = typeof library.path === "string" ? library.path.trim().slice(0, 600) : "";
+    const imports = normalizeLibraryNameList(library.imports || [], `${prefix}.imports`, errors);
+    const exports = normalizeStringList(library.exports || [], `${prefix}.exports`, errors, { maxItems: 2048 });
+    const implementation = normalizeLibraryField(library.implementation) || defaultLibraryImplementation(normalizedKind);
+    const dialect = normalizeLibraryField(library.dialect) || defaultLibraryDialect(normalizedKind);
+
+    return {
+      kind: normalizedKind,
+      name: displayName || libraryDisplayName(nameParts),
+      key: key || libraryKey(nameParts),
+      path: sourcePath,
+      imports,
+      exports,
+      implementation,
+      dialect,
+    };
+  }).filter((library) => library && library.key);
+}
+
 function validatePublishPayload(payload) {
   const errors = [];
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -1138,9 +1430,10 @@ function validatePublishPayload(payload) {
   const features = normalizeStringList(payload.features, "features", errors);
   const keywords = normalizeKeywords(payload.keywords, errors);
   const dependencies = normalizeDependencies(payload.dependencies, errors);
+  const libraries = normalizeLibraries(payload.libraries, errors);
 
   if (errors.length) validationError("publish payload validation failed", errors);
-  return { name, version, description, license, dialects, features, keywords, dependencies };
+  return { name, version, description, license, dialects, features, keywords, dependencies, libraries };
 }
 
 async function putArchive(key, buffer) {
@@ -1291,6 +1584,7 @@ async function publishPackage(req, res) {
     features,
     keywords,
     dependencies,
+    libraries,
   } = validatePublishPayload(payload);
   const name = payloadName;
   const owner = validatePackageOwner(payload.owner);
@@ -1394,6 +1688,16 @@ async function publishPackage(req, res) {
         JSON.stringify(dep.features)
       );
     }
+    insertLibraryRows(name, version, libraries);
+    insertSearchTermRows(name, version, {
+      name,
+      description,
+      keywords,
+      dialects,
+      features,
+      dependencies,
+      libraries,
+    });
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -1409,6 +1713,213 @@ function resolvePackageVersion(name, req) {
     .filter((row) => !row.yanked)
     .filter((row) => satisfies(row.version, req));
   return rows[0] || null;
+}
+
+function packageVersionList(name, includeYanked = false) {
+  if (!packageRow(name)) throw httpError(404, "package not found");
+  return {
+    package: name,
+    versions: versionRows(name)
+      .filter((row) => includeYanked || !row.yanked)
+      .map((row) => ({
+        version: row.version,
+        checksum: row.checksum,
+        size: row.size,
+        downloadUrl: packageDownloadUrl(name, row.version),
+        yanked: Boolean(row.yanked),
+        publishedAt: row.published_at,
+        description: row.description,
+        license: row.license,
+        dialects: JSON.parse(row.dialects_json || "[]"),
+        features: JSON.parse(row.features_json || "[]"),
+        dependencies: dependencyRows(name, row.version),
+      })),
+  };
+}
+
+function packageVersionMetadata(name, version) {
+  const row = db.prepare("SELECT * FROM versions WHERE package_name = ? AND version = ?").get(name, version);
+  if (!row) throw httpError(404, "package version not found");
+  return {
+    package: name,
+    version: row.version,
+    checksum: row.checksum,
+    size: row.size,
+    downloadUrl: packageDownloadUrl(name, row.version),
+    yanked: Boolean(row.yanked),
+    description: row.description,
+    license: row.license,
+    dialects: JSON.parse(row.dialects_json || "[]"),
+    features: JSON.parse(row.features_json || "[]"),
+    dependencies: dependencyRows(name, row.version),
+    libraries: libraryRows(name, row.version),
+  };
+}
+
+function packageVersionManifest(name, version) {
+  const row = db.prepare("SELECT manifest_json FROM versions WHERE package_name = ? AND version = ?").get(name, version);
+  if (!row) throw httpError(404, "package version not found");
+  return {
+    package: name,
+    version,
+    manifest: JSON.parse(row.manifest_json || "{}"),
+  };
+}
+
+function resolveCandidateId(name, version) {
+  return `registry:default:${name}:${version}`;
+}
+
+function cloneConstraintMap(source) {
+  const out = new Map();
+  for (const [name, items] of source.entries()) out.set(name, items.slice());
+  return out;
+}
+
+function addResolveConstraint(constraints, name, req, from, kind = "normal") {
+  const items = constraints.get(name) || [];
+  items.push({ name, req, from, kind });
+  constraints.set(name, items);
+}
+
+function selectedSatisfiesConstraints(selected, constraints, name) {
+  const row = selected.get(name);
+  if (!row) return false;
+  return (constraints.get(name) || []).every((req) => satisfies(row.version, req.req));
+}
+
+function unresolvedConstraintName(selected, constraints) {
+  for (const name of constraints.keys()) {
+    if (!selectedSatisfiesConstraints(selected, constraints, name)) return name;
+  }
+  return "";
+}
+
+function resolveGraphConflict(name, constraints) {
+  const requirements = (constraints.get(name) || []).map((req) => ({
+    req: req.req,
+    from: req.from,
+    kind: req.kind,
+  }));
+  throw httpError(409, "dependency version conflict", { package: name, requirements });
+}
+
+function candidateVersionRows(name, constraints, includeYanked) {
+  return versionRows(name)
+    .filter((row) => includeYanked || !row.yanked)
+    .filter((row) => (constraints.get(name) || []).every((req) => satisfies(row.version, req.req)));
+}
+
+function solveResolveGraph(selected, constraints, includeYanked) {
+  const name = unresolvedConstraintName(selected, constraints);
+  if (!name) return selected;
+
+  const candidates = candidateVersionRows(name, constraints, includeYanked);
+  if (!candidates.length) resolveGraphConflict(name, constraints);
+
+  for (const row of candidates) {
+    const nextSelected = new Map(selected);
+    const nextConstraints = cloneConstraintMap(constraints);
+    nextSelected.set(name, row);
+    const from = resolveCandidateId(name, row.version);
+    for (const dep of dependencyRows(name, row.version)) {
+      if (dep.optional) continue;
+      addResolveConstraint(nextConstraints, dep.name, dep.req, from, dep.kind || "normal");
+    }
+    try {
+      return solveResolveGraph(nextSelected, nextConstraints, includeYanked);
+    } catch (error) {
+      if (error.status !== 409) throw error;
+    }
+  }
+  resolveGraphConflict(name, constraints);
+}
+
+function resolveGraphEdges(rootRequirements, selected) {
+  const out = [];
+  for (const req of rootRequirements) {
+    const row = selected.get(req.name);
+    if (row) {
+      out.push({
+        from: "root",
+        to: resolveCandidateId(req.name, row.version),
+        name: req.name,
+        req: req.req,
+        kind: req.kind || "normal",
+      });
+    }
+  }
+  for (const [name, row] of selected.entries()) {
+    const from = resolveCandidateId(name, row.version);
+    for (const dep of dependencyRows(name, row.version)) {
+      if (dep.optional) continue;
+      const depRow = selected.get(dep.name);
+      if (!depRow) continue;
+      out.push({
+        from,
+        to: resolveCandidateId(dep.name, depRow.version),
+        name: dep.name,
+        req: dep.req,
+        kind: dep.kind || "normal",
+      });
+    }
+  }
+  return out;
+}
+
+function resolveGraphPackage(name, row) {
+  return {
+    id: resolveCandidateId(name, row.version),
+    package: name,
+    name,
+    version: row.version,
+    checksum: row.checksum,
+    size: row.size,
+    downloadUrl: packageDownloadUrl(name, row.version),
+    yanked: Boolean(row.yanked),
+    description: row.description,
+    license: row.license,
+    dialects: JSON.parse(row.dialects_json || "[]"),
+    features: JSON.parse(row.features_json || "[]"),
+    dependencies: dependencyRows(name, row.version),
+  };
+}
+
+function normalizeResolvePayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    validationError("resolve payload must be a JSON object", [
+      { field: "body", message: "must be a JSON object" },
+    ]);
+  }
+  const errors = [];
+  const raw = payload.requirements ?? payload.dependencies;
+  const dependencies = normalizeDependencies(raw, errors);
+  if (!raw) errors.push({ field: "requirements", message: "is required" });
+  if (errors.length) validationError("resolve payload validation failed", errors);
+  return {
+    includeYanked: Boolean(payload.includeYanked),
+    requirements: dependencies.map((dep) => ({
+      name: dep.name,
+      req: dep.req,
+      kind: dep.kind,
+    })),
+  };
+}
+
+async function resolvePackages(req, res) {
+  const payload = normalizeResolvePayload(await readJson(req, 1024 * 1024));
+  const constraints = new Map();
+  for (const requirement of payload.requirements) {
+    addResolveConstraint(constraints, requirement.name, requirement.req, "root", requirement.kind);
+  }
+  const selected = solveResolveGraph(new Map(), constraints, payload.includeYanked);
+  const packages = [...selected.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, row]) => resolveGraphPackage(name, row));
+  sendJson(res, 200, {
+    packages,
+    edges: resolveGraphEdges(payload.requirements, selected),
+  });
 }
 
 async function handleAuthStart(req, res, providerId, url) {
@@ -1636,12 +2147,21 @@ function removePackageOwner(req, res) {
 function searchPackages(url, viewer) {
   const q = String(url.searchParams.get("q") || "").toLowerCase();
   const keyword = String(url.searchParams.get("keyword") || "").toLowerCase();
+  const type = String(url.searchParams.get("type") || "package").toLowerCase();
   const page = Math.max(1, Number(url.searchParams.get("page") || 1));
   const perPage = Math.min(100, Math.max(1, Number(url.searchParams.get("per_page") || 20)));
+  const searchTermPackages = q
+    ? new Set(db.prepare(`
+        SELECT DISTINCT package_name
+        FROM package_search_terms
+        WHERE lower(term) LIKE ?
+      `).all(`%${q}%`).map((row) => row.package_name))
+    : new Set();
   const rows = db.prepare("SELECT name FROM packages ORDER BY updated_at DESC, name ASC").all();
   const filtered = rows.map((row) => publicPackage(row.name, viewer)).filter((pkg) => {
     if (keyword && !(pkg.keywords || []).some((item) => item.toLowerCase() === keyword)) return false;
     if (!q) return true;
+    if (searchTermPackages.has(pkg.name)) return true;
     return [
       pkg.name,
       pkg.description,
@@ -1657,7 +2177,143 @@ function searchPackages(url, viewer) {
     page,
     perPage,
     packages: filtered.slice(offset, offset + perPage),
+    results: type === "all"
+      ? [
+          ...filtered.slice(offset, offset + perPage).map((pkg) => ({
+            type: "package",
+            name: pkg.name,
+            package: pkg.name,
+            version: pkg.latest?.version || "",
+            description: pkg.description,
+          })),
+          ...searchLibraryResults(q, perPage, 0),
+          ...searchIdentifierResults(q, perPage, 0),
+        ]
+      : type === "library"
+        ? searchLibraryResults(q, perPage, offset)
+        : type === "identifier"
+          ? searchIdentifierResults(q, perPage, offset)
+          : filtered.slice(offset, offset + perPage).map((pkg) => ({
+              type: "package",
+              name: pkg.name,
+              package: pkg.name,
+              version: pkg.latest?.version || "",
+              description: pkg.description,
+            })),
   };
+}
+
+function searchLibraryResults(q, limit = 20, offset = 0) {
+  const like = `%${q || ""}%`;
+  return db.prepare(`
+    SELECT l.kind, l.library_name, l.library_key, l.implementation, l.dialect,
+           l.package_name, l.version, v.description
+    FROM version_libraries l
+    JOIN versions v ON v.package_name = l.package_name AND v.version = l.version
+    WHERE (? = ''
+       OR lower(l.library_name) LIKE ?
+       OR lower(l.library_key) LIKE ?
+       OR lower(l.implementation) LIKE ?
+       OR lower(l.dialect) LIKE ?)
+    ORDER BY l.library_key, l.package_name, l.version DESC
+    LIMIT ? OFFSET ?
+  `).all(q, like, like, like, like, limit, offset).map((row) => ({
+    type: "library",
+    name: row.library_name,
+    key: row.library_key,
+    kind: row.kind,
+    implementation: row.implementation || "",
+    dialect: row.dialect || "",
+    package: row.package_name,
+    version: row.version,
+    description: row.description,
+  }));
+}
+
+function searchIdentifierResults(q, limit = 20, offset = 0) {
+  const like = `%${q || ""}%`;
+  return db.prepare(`
+    SELECT i.identifier, i.kind, i.library_name, i.package_name, i.version, v.description
+    FROM version_identifiers i
+    JOIN versions v ON v.package_name = i.package_name AND v.version = i.version
+    WHERE (? = '' OR lower(i.identifier) LIKE ?)
+    ORDER BY i.identifier, i.library_name, i.package_name, i.version DESC
+    LIMIT ? OFFSET ?
+  `).all(q, like, limit, offset).map((row) => ({
+    type: "identifier",
+    name: row.identifier,
+    identifier: row.identifier,
+    kind: row.kind,
+    library: row.library_name,
+    package: row.package_name,
+    version: row.version,
+    description: row.description,
+  }));
+}
+
+function librarySearch(url) {
+  const q = String(url.searchParams.get("q") || "").toLowerCase();
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+  return { libraries: searchLibraryResults(q, limit, 0) };
+}
+
+function libraryProviders(key, url) {
+  const libraryKeyValue = String(key || "").trim().toLowerCase();
+  if (!libraryKeyValue) throw httpError(400, "library key is required");
+  const kind = String(url.searchParams.get("kind") || "").toLowerCase();
+  const rows = db.prepare(`
+    SELECT l.kind, l.library_name, l.library_key, l.path, l.imports_json, l.exports_json,
+           l.implementation, l.dialect, l.package_name, l.version, v.description, v.yanked
+    FROM version_libraries l
+    JOIN versions v ON v.package_name = l.package_name AND v.version = l.version
+    WHERE lower(l.library_key) = ? AND (? = '' OR l.kind = ?)
+    ORDER BY l.package_name, l.version DESC, l.kind
+  `).all(libraryKeyValue, kind, kind).map((row) => ({
+    type: "library",
+    name: row.library_name,
+    key: row.library_key,
+    kind: row.kind,
+    implementation: row.implementation || "",
+    dialect: row.dialect || "",
+    path: row.path || "",
+    imports: JSON.parse(row.imports_json || "[]"),
+    exports: JSON.parse(row.exports_json || "[]"),
+    package: row.package_name,
+    version: row.version,
+    description: row.description,
+    yanked: Boolean(row.yanked),
+  }));
+  return { key: libraryKeyValue, libraries: rows };
+}
+
+function packageDependents(name, includeYanked = false) {
+  if (!packageRow(name)) throw httpError(404, "package not found");
+  const rows = db.prepare(`
+    SELECT d.package_name, d.version, d.req, d.kind, d.registry, d.optional,
+           d.target, d.features_json, v.description, v.yanked
+    FROM dependencies d
+    JOIN versions v ON v.package_name = d.package_name AND v.version = d.version
+    WHERE d.dep_name = ? AND (? = 1 OR v.yanked = 0)
+    ORDER BY d.package_name, d.version DESC
+  `).all(name, includeYanked ? 1 : 0).map((row) => ({
+    package: row.package_name,
+    version: row.version,
+    req: row.req,
+    kind: row.kind,
+    registry: row.registry || null,
+    optional: Boolean(row.optional),
+    target: row.target || null,
+    features: JSON.parse(row.features_json || "[]"),
+    description: row.description,
+    yanked: Boolean(row.yanked),
+  }));
+  return { package: name, dependents: rows };
+}
+
+function identifierSearch(url) {
+  const q = String(url.searchParams.get("q") || "").toLowerCase();
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+  return { identifiers: searchIdentifierResults(q, limit, 0) };
 }
 
 function managedPackages(user) {
@@ -1826,6 +2482,27 @@ async function route(req, res) {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/api/v1/resolve") {
+    await resolvePackages(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/v1/libraries") {
+    sendJson(res, 200, librarySearch(url));
+    return;
+  }
+
+  if (req.method === "GET" && pathname.startsWith("/api/v1/libraries/")) {
+    const key = decodeURIComponent(pathname.slice("/api/v1/libraries/".length));
+    sendJson(res, 200, libraryProviders(key, url));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/v1/identifiers") {
+    sendJson(res, 200, identifierSearch(url));
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/api/v1/me/packages") {
     const user = requireUser(req);
     sendJson(res, 200, { packages: managedPackages(user) });
@@ -1834,6 +2511,30 @@ async function route(req, res) {
 
   if (req.method === "PUT" && pathname === "/api/v1/packages/new") {
     await publishPackage(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && pathname.endsWith("/dependents") && pathname.startsWith("/api/v1/packages/")) {
+    const name = packageNameFromApiPath(pathname, "/dependents");
+    sendJson(res, 200, packageDependents(name, url.searchParams.get("includeYanked") === "1"));
+    return;
+  }
+
+  if (req.method === "GET" && pathname.endsWith("/versions") && pathname.startsWith("/api/v1/packages/")) {
+    const name = packageNameFromApiPath(pathname, "/versions");
+    sendJson(res, 200, packageVersionList(name, url.searchParams.get("includeYanked") === "1"));
+    return;
+  }
+
+  if (req.method === "GET" && pathname.endsWith("/metadata") && pathname.startsWith("/api/v1/packages/")) {
+    const { name, version } = versionRouteParts(pathname, "metadata");
+    sendJson(res, 200, packageVersionMetadata(name, version));
+    return;
+  }
+
+  if (req.method === "GET" && pathname.endsWith("/manifest") && pathname.startsWith("/api/v1/packages/")) {
+    const { name, version } = versionRouteParts(pathname, "manifest");
+    sendJson(res, 200, packageVersionManifest(name, version));
     return;
   }
 
@@ -1934,6 +2635,8 @@ const server = http.createServer((req, res) => {
     });
   });
 });
+
+backfillPackageSearchTerms();
 
 server.listen(config.port, config.host, () => {
   const base = config.baseUrl || `http://${config.host}:${config.port}`;

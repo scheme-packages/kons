@@ -11,4 +11,6 @@
       (make-kons-command
        runner
        (kons-command-spec "update" cmd-update "Resolve dependencies and write kons.lock." #t #t #t #f #f)
-       (make-command-grammar)))))
+       (make-command-grammar
+        (list 'flag "upgrade"
+          'help: "Upgrade compatible registry dependencies instead of preserving locked versions."))))))

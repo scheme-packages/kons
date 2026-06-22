@@ -55,6 +55,8 @@
        make-logout-command
        make-search-command
        make-info-command
+       make-provides-command
+       make-identifier-command
        make-package-command
        make-publish-command
        make-yank-command
