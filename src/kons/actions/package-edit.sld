@@ -55,8 +55,8 @@
     (lockfile-error "add/remove would modify kons.lock, but --locked/--frozen was supplied"))
   (let* ((manifest (parse-manifest-exprs manifest-path* new-exprs))
          (features (active-features manifest cmd))
-         (lock-path (project-lock-path manifest))
-         (old-lock (read-existing-lock manifest))
+         (lock-path (command-lock-path manifest cmd))
+         (old-lock (read-existing-command-lock manifest cmd))
          (new-lock (make-lock manifest features cmd #t old-lock)))
     (ensure-supported-active-features manifest features cmd)
     (materialize-local-sources manifest features #t #f cmd)
@@ -351,7 +351,7 @@
 	
 	(define (system-name-field? item)
 	  (and (pair? item)
-	       (memq (car item) '(names schemes implementations targets))))
+	       (memq (car item) '(names schemes implementations targets profiles compile-modes))))
 	
 	(define (system-expr-names expr)
 	  (let loop ((items (cdr expr)) (out '()))
@@ -367,7 +367,7 @@
 	  (let loop ((items (cdr expr)) (out '()))
 	    (cond
 	     ((null? items) (reverse out))
-	     ((and (pair? (car items)) (memq (car (car items)) '(schemes implementations targets)))
+	     ((and (pair? (car items)) (memq (car (car items)) '(schemes implementations targets profiles compile-modes)))
 	      (loop (cdr items) (cons (car items) out)))
 	     (else (loop (cdr items) out)))))
 	

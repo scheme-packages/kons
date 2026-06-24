@@ -4,6 +4,7 @@
           lock-root-name
           lock-root-version
           lock-root-scheme
+          lock-root-dialect
           lock-root-target
           lock-root-profile
           lock-root-compile-mode
@@ -61,6 +62,11 @@
   (let* ((root-form (assq 'root (cdr lock)))
          (scheme-form (and root-form (assq 'scheme (cdr root-form)))))
     (and scheme-form (cadr scheme-form))))
+
+(define (lock-root-dialect lock)
+  (let* ((root-form (assq 'root (cdr lock)))
+         (dialect-form (and root-form (assq 'dialect (cdr root-form)))))
+    (and dialect-form (cadr dialect-form))))
 
 (define (lock-root-target lock)
   (let* ((root-form (assq 'root (cdr lock)))
@@ -148,12 +154,14 @@
   (not (registry-dependency? dep)))
 
 (define (registry-requirement dep)
-  `((name . ,(alist-ref dep 'name '()))
-    (version . ,(alist-ref dep 'version "*"))
-    (registry . ,(registry-ref (alist-ref dep 'registry #f)))
-    (kind . ,(alist-ref dep 'scope 'runtime))
-    (optional . ,(alist-ref dep 'optional #f))
-    (features . ,(alist-ref dep 'features '()))))
+  (append
+   `((name . ,(alist-ref dep 'name '()))
+     (version . ,(alist-ref dep 'version "*"))
+     (registry . ,(registry-ref (alist-ref dep 'registry #f)))
+     (kind . ,(alist-ref dep 'scope 'runtime))
+     (optional . ,(alist-ref dep 'optional #f))
+     (features . ,(alist-ref dep 'features '())))
+   (dependency-selector-fields dep)))
 
 (define (requirement-key req)
   (string-append
@@ -169,6 +177,46 @@
        ((string=? id (candidate-id (car items))) #t)
        (else (loop (cdr items)))))))
 
+(define (replace-candidate-field candidate key value)
+  (let loop ((items candidate) (out '()) (done? #f))
+    (cond
+     ((null? items)
+      (reverse (if done? out (cons (cons key value) out))))
+     ((eq? (caar items) key)
+      (loop (cdr items) (cons (cons key value) out) #t))
+     (else
+      (loop (cdr items) (cons (car items) out) done?)))))
+
+(define (feature-dependency-with-applicable-dependencies feature-dep manifest cmd)
+  (let ((deps (filter (lambda (dep) (dependency-applies? dep manifest cmd))
+                      (alist-ref feature-dep 'dependencies '()))))
+    (replace-candidate-field feature-dep 'dependencies deps)))
+
+(define (candidate-with-applicable-dependencies candidate manifest cmd)
+  (let ((deps (filter (lambda (dep) (dependency-applies? dep manifest cmd))
+                      (alist-ref candidate 'dependencies '())))
+        (feature-deps
+         (map (lambda (feature-dep)
+                (feature-dependency-with-applicable-dependencies
+                 feature-dep
+                 manifest
+                 cmd))
+              (alist-ref candidate 'feature-dependencies '()))))
+    (replace-candidate-field
+     (replace-candidate-field candidate 'dependencies deps)
+     'feature-dependencies
+     feature-deps)))
+
+(define (candidate-feature-dependencies-for-universe candidate)
+  (append-map
+   (lambda (item)
+     (alist-ref item 'dependencies '()))
+   (alist-ref candidate 'feature-dependencies '())))
+
+(define (candidate-dependencies-for-universe candidate)
+  (append (alist-ref candidate 'dependencies '())
+          (candidate-feature-dependencies-for-universe candidate)))
+
 (define (requirement-known? req seen)
   (let ((key (requirement-key req)))
     (let loop ((items seen))
@@ -177,7 +225,7 @@
        ((string=? key (car items)) #t)
        (else (loop (cdr items)))))))
 
-(define (collect-registry-universe requirements offline?)
+(define (collect-registry-universe requirements offline? manifest cmd)
   (let loop ((pending requirements) (seen '()) (out '()))
     (cond
      ((null? pending) out)
@@ -189,15 +237,15 @@
              (name (alist-ref req 'name '()))
              (candidates (registry-package-candidates registry name offline?))
              (new-candidates
-              (filter (lambda (candidate)
-                        (not (candidate-known? candidate out)))
-                      candidates))
+              (map (lambda (candidate)
+                     (candidate-with-applicable-dependencies candidate manifest cmd))
+                   (filter (lambda (candidate)
+                             (not (candidate-known? candidate out)))
+                           candidates)))
              (candidate-deps
               (append-map
                (lambda (candidate)
-                 (filter (lambda (dep)
-                           (not (alist-ref dep 'optional #f)))
-                         (alist-ref candidate 'dependencies '())))
+                 (candidate-dependencies-for-universe candidate))
                new-candidates)))
         (loop (append (cdr pending) candidate-deps)
               (cons (requirement-key req) seen)
@@ -227,7 +275,7 @@
       (checksum ,(alist-ref candidate 'checksum ""))
       (download ,(alist-ref candidate 'download ""))
       (optional #f)
-      (features ,@(alist-ref candidate 'features '())))))
+      (features ,@(alist-ref candidate 'resolved-features '())))))
 
 (define (lock-entry-registry? entry)
   (and (pair? entry)
@@ -251,13 +299,16 @@
     (to ,(edge-ref edge 'to ""))
     (name ,(edge-ref edge 'name '()))
     (req ,(edge-ref edge 'req "*"))
-    (kind ,(edge-ref edge 'kind 'runtime))))
+    (kind ,(edge-ref edge 'kind 'runtime))
+    (features ,@(edge-ref edge 'features '()))
+    (optional ,(edge-ref edge 'optional #f))
+    ,@(dependency-selector-fields edge)))
 
-(define (registry-resolution-lock-data deps offline? preferred-refs)
+(define (registry-resolution-lock-data deps offline? preferred-refs manifest cmd)
   (let ((requirements (map registry-requirement deps)))
     (if (null? requirements)
         (cons '() '())
-        (let* ((universe (collect-registry-universe requirements offline?))
+        (let* ((universe (collect-registry-universe requirements offline? manifest cmd))
                (resolution (resolve-dependencies requirements universe preferred-refs))
                (edges (resolution-edges resolution)))
           (cons
@@ -266,12 +317,54 @@
                 (resolution-packages resolution))
            (map lock-edge-entry edges))))))
 
+(define (workspace-root-manifest-path cmd)
+  (command-option cmd "workspace-root" #f))
+
+(define (workspace-member-manifest-path workspace member)
+  (path-join (path-join (manifest-root workspace) member) "kons.scm"))
+
+(define (workspace-member-manifests cmd)
+  (let ((workspace-path (workspace-root-manifest-path cmd)))
+    (if workspace-path
+        (let ((workspace (parse-manifest workspace-path)))
+          (if (manifest-workspace? workspace)
+              (map
+               (lambda (member)
+                 (parse-manifest
+                  (workspace-member-manifest-path workspace member)))
+               (workspace-members workspace))
+              '()))
+        '())))
+
+(define (workspace-lock-dependencies manifest include-dev? features cmd)
+  (let ((members (workspace-member-manifests cmd)))
+    (if (null? members)
+        (all-dependencies-for manifest include-dev? features cmd)
+        (append-map
+         (lambda (member-manifest)
+           (all-dependencies-for member-manifest include-dev? features cmd))
+         members))))
+
+(define (entry-present? entry entries)
+  (let loop ((items entries))
+    (cond
+     ((null? items) #f)
+     ((equal? entry (car items)) #t)
+     (else (loop (cdr items))))))
+
+(define (dedupe-lock-entries entries)
+  (let loop ((items entries) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((entry-present? (car items) out) (loop (cdr items) out))
+     (else (loop (cdr items) (cons (car items) out))))))
+
 (define (make-lock manifest features cmd . maybe-args)
   (let* ((include-dev? (if (null? maybe-args) #t (car maybe-args)))
          (previous-lock (if (or (null? maybe-args) (null? (cdr maybe-args)))
                             #f
                             (cadr maybe-args)))
-         (deps (all-dependencies-for manifest include-dev? features cmd))
+         (deps (workspace-lock-dependencies manifest include-dev? features cmd))
          (offline? (or (command-flag? cmd "offline")
                        (command-flag? cmd "frozen")))
          (preferred-refs (if (command-flag? cmd "upgrade")
@@ -280,15 +373,18 @@
          (registry-data (registry-resolution-lock-data
                          (filter selected-registry-dependency? deps)
                          offline?
-                         preferred-refs))
+                         preferred-refs
+                         manifest
+                         cmd))
          (registry-entries (car registry-data))
          (registry-edges (cdr registry-data))
          (package-entries
           (sort-lock-entries
-           (append
-            (map (lambda (dep) (dependency-lock-entry manifest dep))
-                                   (filter non-registry-dependency? deps))
-            registry-entries)))
+           (dedupe-lock-entries
+            (append
+             (map (lambda (dep) (dependency-lock-entry manifest dep))
+                  (filter non-registry-dependency? deps))
+             registry-entries))))
         (override-entries
          (sort-lock-entries
           (map (lambda (dep) (dependency-lock-entry manifest dep))
@@ -298,6 +394,11 @@
       (root
        (name ,(package-name manifest))
        (version ,(package-version manifest))
+       (scheme ,(command-selected-scheme cmd))
+       (dialect ,(command-selected-dialect manifest cmd))
+       (target ,(command-option cmd "target" #f))
+       (profile ,(command-selected-profile cmd))
+       (compile-mode ,(command-selected-compile-mode cmd))
        (features ,@features))
       (packages
        ,@package-entries)

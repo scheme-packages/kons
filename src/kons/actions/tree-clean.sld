@@ -21,6 +21,7 @@
           (kons manifest)
           (kons lock)
           (kons options)
+          (kons dep registry)
           (kons actions paths)
           (kons actions lock-shared))
 
@@ -69,7 +70,17 @@
          (scope ,(alist-ref dep 'scope 'runtime))
          (type ,type))))))
 
-(define (tree-dependency-from-lock-entry entry)
+(define (tree-dependency-source-fields manifest entry)
+  (if (eq? (lock-entry-type entry) 'registry)
+      (let ((vendor-root (vendor-source-root manifest entry)))
+        (if vendor-root
+            `((source vendored)
+              (source-path ,vendor-root))
+            `((source registry)
+              (source-path ,(locked-registry-entry-root entry)))))
+      '()))
+
+(define (tree-dependency-from-lock-entry entry . maybe-manifest)
   (cond
    ((and (pair? entry) (eq? (car entry) 'system))
     `(dependency
@@ -77,7 +88,9 @@
       (type system)
       (names ,@(lock-entry-rest entry 'names))
       ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))))
+      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
+      ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
+      ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
    ((eq? (lock-entry-type entry) 'path)
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -87,7 +100,9 @@
       (raw ,(lock-entry-ref entry 'raw #f))
       (source-hash ,(lock-entry-ref entry 'source-hash #f))
       ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))))
+      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
+      ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
+      ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
    ((eq? (lock-entry-type entry) 'workspace)
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -97,7 +112,9 @@
       (path ,(lock-entry-ref entry 'path ""))
       (source-hash ,(lock-entry-ref entry 'source-hash #f))
       ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))))
+      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
+      ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
+      ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
    ((eq? (lock-entry-type entry) 'git)
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -108,7 +125,9 @@
       (subpath ,(lock-entry-ref entry 'subpath #f))
       (commit ,(lock-entry-ref entry 'commit #f))
       ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))))
+      ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
+      ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
+      ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
    ((eq? (lock-entry-type entry) 'registry)
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -118,7 +137,10 @@
       (version ,(lock-entry-ref entry 'version ""))
       (registry ,(lock-entry-ref entry 'registry "default"))
       (checksum ,(lock-entry-ref entry 'checksum ""))
-      (id ,(lock-entry-ref entry 'id ""))))
+      (id ,(lock-entry-ref entry 'id ""))
+      ,@(if (pair? maybe-manifest)
+            (tree-dependency-source-fields (car maybe-manifest) entry)
+            '())))
    (else
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -133,7 +155,7 @@
     (kind ,(lock-entry-ref entry 'kind 'runtime))))
 
 (define (matching-lock manifest features cmd)
-  (let ((path (project-lock-path manifest)))
+  (let ((path (command-lock-path manifest cmd)))
     (and (file-exists? path)
          (let ((lock (read-lockfile path)))
            (and (lock-root-matches? manifest features cmd lock)
@@ -194,8 +216,8 @@
            (run-command (string-append "rm -rf " (shell-quote path))))))
      (directory-list root))))
 
-(define (clean-store-gc manifest)
-  (let ((lock-path (project-lock-path manifest)))
+(define (clean-store-gc manifest cmd)
+  (let ((lock-path (command-lock-path manifest cmd)))
   (unless (file-exists? lock-path)
     (lockfile-error "store garbage collection requires kons.lock"))
   (let* ((lock (read-lockfile lock-path))

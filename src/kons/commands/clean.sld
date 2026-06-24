@@ -10,7 +10,7 @@
     (define (make-clean-command runner)
       (make-kons-command
        runner
-       (kons-command-spec "clean" cmd-clean "Remove generated build and store artifacts." #f #f #f #f #f)
+       (kons-command-spec "clean" cmd-clean "Remove generated build and store artifacts." #t #t #t #f #f)
        (make-command-grammar
         (list 'flag "plan"
           'help: "Print the planned action without executing.")

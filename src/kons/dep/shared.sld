@@ -27,7 +27,13 @@
   (append
    (let ((schemes (alist-ref dep 'schemes '())))
      (if (null? schemes) '() `((schemes ,@schemes))))
+   (let ((dialects (alist-ref dep 'dialects '())))
+     (if (null? dialects) '() `((dialects ,@dialects))))
    (let ((targets (alist-ref dep 'targets '())))
-     (if (null? targets) '() `((targets ,@targets))))))
+     (if (null? targets) '() `((targets ,@targets))))
+   (let ((profiles (alist-ref dep 'profiles '())))
+     (if (null? profiles) '() `((profiles ,@profiles))))
+   (let ((compile-modes (alist-ref dep 'compile-modes '())))
+     (if (null? compile-modes) '() `((compile-modes ,@compile-modes))))))
 
   ))

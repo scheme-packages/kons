@@ -10,13 +10,16 @@
           cmd-unyank
           cmd-owner)
   (import (scheme base)
+          (scheme char)
+          (scheme file)
           (scheme process-context)
           (scheme write)
           (kons util)
           (kons names)
           (kons manifest)
           (kons options)
-          (kons registry))
+          (kons registry)
+          (kons compat json))
 
   (begin
 (define (registry-option cmd)
@@ -27,12 +30,50 @@
 (define (token-option cmd)
   (command-string-option cmd "token"))
 
+(define (json-format? value)
+  (and value (string=? value "json")))
+
 (define (command-string-option cmd name)
   (let ((value (command-option cmd name #f)))
     (if (string? value) value #f)))
 
 (define (second xs) (car (cdr xs)))
 (define (third xs) (car (cdr (cdr xs))))
+
+(define (write-text-file path text)
+  (call-with-output-file path
+    (lambda (out)
+      (display text out))))
+
+(define (registry-trust-key-relative-path key-id)
+  (path-join "keys" (string-append (safe-store-token key-id) ".pem")))
+
+(define (registry-trust-key-path key-id)
+  (path-join
+   (path-join (kons-home) "config")
+   (registry-trust-key-relative-path key-id)))
+
+(define (write-registry-trust-key! key-id public-key)
+  (let ((path (registry-trust-key-path key-id)))
+    (run-command (string-append "mkdir -p " (shell-quote (dirname path))))
+    (write-text-file path public-key)
+    (run-command (string-append "chmod 600 " (shell-quote path)))
+    path))
+
+(define (indexed-registry-trust-fields name index-data cmd)
+  (if (command-flag? cmd "trust")
+      (let* ((signing (json-ref index-data 'signing '()))
+             (key-id (json-string-ref signing 'keyId ""))
+             (public-key (json-string-ref signing 'publicKey "")))
+        (when (or (string=? key-id "") (string=? public-key ""))
+          (dependency-error
+           "registry index response is missing signing key metadata"
+           name))
+        (write-registry-trust-key! key-id public-key)
+        `((trust . required)
+          (key-id . ,key-id)
+          (key-file . ,(registry-trust-key-relative-path key-id))))
+      '()))
 
 (define (string-join xs sep)
   (let loop ((rest xs) (out ""))
@@ -51,6 +92,72 @@
        ((= i len) #f)
        ((char=? (string-ref s i) ch) i)
        (else (loop (+ i 1)))))))
+
+(define (string-trim-spaces text)
+  (let ((len (string-length text)))
+    (let find-start ((start 0))
+      (if (and (< start len) (char-whitespace? (string-ref text start)))
+          (find-start (+ start 1))
+          (let find-end ((end len))
+            (if (and (> end start)
+                     (char-whitespace? (string-ref text (- end 1))))
+                (find-end (- end 1))
+                (substring text start end)))))))
+
+(define (string-starts-with? text ch)
+  (and (> (string-length text) 0)
+       (char=? (string-ref text 0) ch)))
+
+(define (string-ends-with? text ch)
+  (let ((len (string-length text)))
+    (and (> len 0)
+         (char=? (string-ref text (- len 1)) ch))))
+
+(define (string-contains-char? text ch)
+  (let ((len (string-length text)))
+    (let loop ((index 0))
+      (cond
+       ((= index len) #f)
+       ((char=? (string-ref text index) ch) #t)
+       (else (loop (+ index 1)))))))
+
+(define (split-whitespace text)
+  (let ((len (string-length text)))
+    (let loop ((index 0) (start #f) (parts '()))
+      (cond
+       ((= index len)
+        (reverse
+         (if start
+             (cons (substring text start index) parts)
+             parts)))
+       ((char-whitespace? (string-ref text index))
+        (loop (+ index 1)
+              #f
+              (if start
+                  (cons (substring text start index) parts)
+                  parts)))
+       (start
+        (loop (+ index 1) start parts))
+       (else
+        (loop (+ index 1) index parts))))))
+
+(define (display-library-name? text)
+  (and (string-starts-with? text #\()
+       (string-ends-with? text #\))))
+
+(define (library-route-key text)
+  (let ((trimmed (string-trim-spaces text)))
+    (cond
+     ((display-library-name? trimmed)
+      (let ((inner (substring trimmed 1 (- (string-length trimmed) 1))))
+        (string-join (split-whitespace inner) "/")))
+     ((not (string-contains-char? trimmed #\/))
+      (let ((parts (split-whitespace trimmed)))
+        (cond
+         ((null? parts) trimmed)
+         ((null? (cdr parts)) trimmed)
+         (else (string-join parts "/")))))
+     (else trimmed))))
 
 (define (rest-strings cmd)
   (filter string? (command-rest cmd)))
@@ -156,6 +263,22 @@
       (display-one (car items))
       (loop (cdr items) #f))))
 
+(define (json-with-format-version value)
+  (if (and (pair? value) (not (assq 'formatVersion value)))
+      (cons (cons 'formatVersion 1) value)
+      value))
+
+(define (display-json-file path)
+  (json-write
+   (json-with-format-version (registry-json-read path))
+   (current-output-port))
+  (newline))
+
+(define (display-json-or cmd json display-text)
+  (if (json-format? (command-option cmd "format" "text"))
+      (display-json-file json)
+      (display-text json)))
+
 (define (display-search-json json)
   (let* ((data (registry-json-read json))
          (results (json-object-list (json-ref data 'results '#())))
@@ -183,10 +306,32 @@
       (display "    exports: ")
       (displayln (string-join exports ", ")))))
 
+(define (display-trust-line latest trust)
+  (let ((checksum (json-string-ref latest 'checksum ""))
+        (published-by (json-ref latest 'publishedBy '()))
+        (signed? (json-bool-ref trust 'signedMetadata)))
+    (unless (string=? checksum "")
+      (display "checksum: ")
+      (displayln checksum))
+    (unless (null? published-by)
+      (display "published by: ")
+      (displayln (json-string-ref published-by 'username "")))
+    (display "signed metadata: ")
+    (if signed?
+        (begin
+          (display "available")
+          (let ((key-id (json-string-ref trust 'keyId "")))
+            (unless (string=? key-id "")
+              (display " ")
+              (display key-id)))
+          (newline))
+        (displayln "not configured"))))
+
 (define (display-package-info-json json)
   (let* ((data (registry-json-read json))
          (p (json-ref data 'package '()))
          (latest (json-ref p 'latest '()))
+         (trust (json-ref p 'trust '()))
          (versions (json-object-list (json-ref p 'versions '#()))))
     (display (json-string-ref p 'name ""))
     (display " ")
@@ -195,6 +340,7 @@
       (unless (string=? description "") (displayln description)))
     (let ((repository (json-string-ref p 'repository "")))
       (unless (string=? repository "") (display "repository: ") (displayln repository)))
+    (display-trust-line latest trust)
     (display "versions: ")
     (displayln
      (string-join
@@ -300,14 +446,19 @@
             (let* ((index-url (second items))
                    (name (if (pair? (cdr (cdr items))) (third items) default-registry-alias))
                    (json (registry-http-json index-url ""))
-                   (api (json-string-ref (registry-json-read json) 'api "")))
+                   (index-data (registry-json-read json))
+                   (api (json-string-ref index-data 'api ""))
+                   (trust-fields (indexed-registry-trust-fields name index-data cmd)))
               (when (string=? api "")
                 (dependency-error "registry index response is missing api" index-url))
-              (registry-add! name api (command-flag? cmd "default"))
+              (registry-add! name api (command-flag? cmd "default") trust-fields)
               (display "registry indexed ")
               (display name)
               (display " ")
-              (displayln api)))
+              (display api)
+              (when (command-flag? cmd "trust")
+                (display " (trust required)"))
+              (newline)))
            (else (usage-error "unknown registry subcommand" action)))))))
 
 (define (cmd-login cmd)
@@ -329,6 +480,7 @@
   (let* ((query (string-join (rest-strings cmd) " "))
          (registry (registry-option cmd))
          (limit (command-string-option cmd "limit"))
+         (page (command-string-option cmd "page"))
          (type (command-string-option cmd "type"))
          (json (registry-http-json registry
                                    (string-append "/api/v1/search?q="
@@ -336,26 +488,30 @@
                                                   (if limit
                                                       (string-append "&per_page=" (url-encode limit))
                                                       "")
+                                                  (if page
+                                                      (string-append "&page=" (url-encode page))
+                                                      "")
                                                   (if type
                                                       (string-append "&type=" (url-encode type))
                                                       "")))))
     (when (string=? query "")
       (usage-error "search requires a query"))
-    (display-search-json json)))
+    (display-json-or cmd json display-search-json)))
 
 (define (cmd-info cmd)
   (let* ((name (first-rest cmd "info"))
          (registry (registry-option cmd))
          (json (registry-http-json registry
                                    (string-append "/api/v1/packages/" (url-encode name)))))
-    (display-package-info-json json)))
+    (display-json-or cmd json display-package-info-json)))
 
 (define (cmd-provides cmd)
   (let* ((library (first-rest cmd "provides"))
          (registry (registry-option cmd))
          (json (registry-http-json registry
-                                   (string-append "/api/v1/libraries/" (url-encode library)))))
-    (display-library-providers-json json)))
+                                   (string-append "/api/v1/libraries/"
+                                                  (url-encode (library-route-key library))))))
+    (display-json-or cmd json display-library-providers-json)))
 
 (define (cmd-identifier cmd)
   (let* ((query (string-join (rest-strings cmd) " "))
@@ -369,7 +525,7 @@
                                                       "")))))
     (when (string=? query "")
       (usage-error "identifier requires a query"))
-    (display-identifiers-json json)))
+    (display-json-or cmd json display-identifiers-json)))
 
 (define (yank-parts cmd unyank?)
   (let* ((items (rest-strings cmd))

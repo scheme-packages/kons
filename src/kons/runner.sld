@@ -11,8 +11,11 @@
           dependency-source-roots
           activation-source-roots
           locked-activation-source-roots
+          locked-entry-source-root
           effective-activation-source-roots
           locked-entry-in-scope?
+          lock-missing-materializations
+          missing-materialization-details
           lock-materialized?
           materializable-dependency?
           materialize-local-sources
@@ -42,7 +45,8 @@
           (kons dep git)
           (kons dep path)
           (kons dep registry)
-          (kons dep workspace))
+          (kons dep workspace)
+          (kons actions paths))
 
 (begin
 (define (adapter-scheme manifest scheme)
@@ -50,10 +54,14 @@
          (mode (implementation-mode-for-dialects scheme dialects)))
     (if mode
         (implementation-mode-id mode)
-      (manifest-error "unsupported dialect for selected implementation"
-           (package-name manifest)
-           dialects
-           scheme))))
+        (if (and (memq 'r7rs dialects)
+                 (implementation-mode-for-dialects scheme '(r6rs)))
+            (implementation-mode-id
+             (implementation-mode-for-dialects scheme '(r6rs)))
+            (manifest-error "unsupported dialect for selected implementation"
+                 (package-name manifest)
+                 dialects
+                 scheme)))))
 
 (define (compile-mode-arg maybe index default)
   (let loop ((items maybe) (n index))
@@ -134,13 +142,24 @@
           (path-join package-root (package-source-path package-manifest)))
         package-root)))
 
-(define (locked-entry-source-root entry)
-  (let ((root (case (lock-entry-type entry)
-                 ((path) (locked-path-entry-root entry))
-                 ((workspace) (locked-workspace-entry-root entry))
-                 ((git) (locked-git-entry-root entry))
-                 ((registry) (locked-registry-entry-root entry))
-                (else #f))))
+(define-record-type <missing-materialization>
+  (make-missing-materialization entry root reason archive)
+  missing-materialization?
+  (entry missing-materialization-entry)
+  (root missing-materialization-root)
+  (reason missing-materialization-reason)
+  (archive missing-materialization-archive))
+
+(define (locked-entry-expected-root entry . maybe-manifest)
+  (case (lock-entry-type entry)
+    ((path) (locked-path-entry-root entry))
+    ((workspace) (locked-workspace-entry-root entry))
+    ((git) (locked-git-entry-root entry))
+    ((registry) (apply locked-registry-entry-root entry maybe-manifest))
+    (else #f)))
+
+(define (locked-entry-source-root entry . maybe-manifest)
+  (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
     (if root
         (begin
           (unless (file-exists? root)
@@ -150,41 +169,82 @@
            (subpath-package-root root (lock-entry-ref entry 'subpath #f))))
         #f)))
 
-(define (locked-entry-materialized? entry)
-  (let ((root (case (lock-entry-type entry)
-                ((path) (locked-path-entry-root entry))
-                ((workspace) (locked-workspace-entry-root entry))
-                ((git) (locked-git-entry-root entry))
-                ((registry) (locked-registry-entry-root entry))
-                (else #f))))
+(define (locked-entry-materialized? entry . maybe-manifest)
+  (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
     (case (lock-entry-type entry)
       ((git) (and root (git-checkout-ready? root (lock-entry-ref entry 'commit ""))))
       (else
        (or (not root)
            (file-exists? root))))))
 
+(define (registry-entry-archive-path entry)
+  (registry-archive-path
+   (lock-entry-ref entry 'registry default-registry-alias)
+   (name->string (lock-entry-ref entry 'name '()))
+   (lock-entry-ref entry 'version "")
+   (lock-entry-ref entry 'checksum "")))
+
+(define (locked-entry-missing-materialization entry . maybe-manifest)
+  (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
+    (cond
+     ((not root) #f)
+     ((and (eq? (lock-entry-type entry) 'git)
+           (not (git-checkout-ready? root (lock-entry-ref entry 'commit ""))))
+      (make-missing-materialization entry root 'git-checkout-not-ready #f))
+     ((not (file-exists? root))
+      (make-missing-materialization
+       entry
+       root
+       'missing-root
+       (if (eq? (lock-entry-type entry) 'registry)
+           (registry-entry-archive-path entry)
+           #f)))
+     (else #f))))
+
+(define (lock-missing-materializations lock include-dev? . maybe-manifest)
+  (let loop ((entries (lock-package-entries lock)) (out '()))
+    (cond
+     ((null? entries) (reverse out))
+     ((not (locked-entry-in-scope? (car entries) include-dev?))
+      (loop (cdr entries) out))
+     ((apply locked-entry-missing-materialization (car entries) maybe-manifest)
+      => (lambda (missing)
+           (loop (cdr entries) (cons missing out))))
+     (else (loop (cdr entries) out)))))
+
+(define (missing-materialization-details missing)
+  (let* ((entry (missing-materialization-entry missing))
+         (archive (missing-materialization-archive missing)))
+    `((reason . missing-materialization)
+      (type . ,(lock-entry-type entry))
+      (name . ,(name->string (lock-entry-ref entry 'name '())))
+      (scope . ,(lock-entry-ref entry 'scope 'runtime))
+      (root . ,(missing-materialization-root missing))
+      (cause . ,(missing-materialization-reason missing))
+      ,@(if archive `((archive . ,archive)) '()))))
+
 (define (locked-entry-in-scope? entry include-dev?)
   (let ((scope (lock-entry-ref entry 'scope 'runtime)))
     (or include-dev? (not (eq? scope 'dev)))))
 
-(define (lock-materialized? lock include-dev?)
+(define (lock-materialized? lock include-dev? . maybe-manifest)
   (let loop ((entries (lock-package-entries lock)))
     (cond
      ((null? entries) #t)
      ((not (locked-entry-in-scope? (car entries) include-dev?))
       (loop (cdr entries)))
-     ((locked-entry-materialized? (car entries))
+     ((apply locked-entry-materialized? (car entries) maybe-manifest)
       (loop (cdr entries)))
      (else #f))))
 
-(define (locked-dependency-source-roots lock include-dev?)
+(define (locked-dependency-source-roots lock include-dev? . maybe-manifest)
   (let loop ((entries (lock-package-entries lock)) (out '()))
     (cond
      ((null? entries) (reverse out))
      ((not (locked-entry-in-scope? (car entries) include-dev?))
       (loop (cdr entries) out))
      (else
-      (let ((root (locked-entry-source-root (car entries))))
+      (let ((root (apply locked-entry-source-root (car entries) maybe-manifest)))
         (if root
             (loop (cdr entries) (cons root out))
             (loop (cdr entries) out)))))))
@@ -260,14 +320,22 @@
 
 (define (locked-activation-source-roots manifest lock include-dev?)
   (cons (manifest-source-root manifest)
-        (locked-dependency-source-roots lock include-dev?)))
+        (locked-dependency-source-roots lock include-dev? manifest)))
+
+(define (workspace-shared-lock? cmd)
+  (and (command-option cmd "workspace-root" #f) #t))
+
+(define (lock-root-identity-matches-activation? manifest cmd lock)
+  (or (workspace-shared-lock? cmd)
+      (and (equal? (lock-root-name lock) (package-name manifest))
+           (equal? (lock-root-version lock) (package-version manifest)))))
 
 	(define (lock-matches-activation? manifest features include-dev? cmd lock)
-	  (and (equal? (lock-root-name lock) (package-name manifest))
-	       (equal? (lock-root-version lock) (package-version manifest))
+	  (and (lock-root-identity-matches-activation? manifest cmd lock)
 	       (equal? (lock-root-features lock) features)
 	       (or (command-flag? cmd "offline")
 	           (command-flag? cmd "frozen")
+	           (workspace-shared-lock? cmd)
 	           (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev? lock))
 	           (and (not include-dev?)
 	                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))))
@@ -284,11 +352,11 @@
          (equal? (lock-section old-lock 'overrides)
                  (lock-section new-lock 'overrides))))
 
-	(define (activation-lock-path manifest)
-	  (path-join (manifest-root manifest) "kons.lock"))
+	(define (activation-lock-path manifest cmd)
+	  (command-lock-path manifest cmd))
 
 	(define (matching-activation-lock manifest features include-dev? cmd)
-	  (let ((path (activation-lock-path manifest)))
+	  (let ((path (activation-lock-path manifest cmd)))
 	    (and (file-exists? path)
 	         (let ((lock (read-lockfile path)))
 	           (and (lock-matches-activation? manifest features include-dev? cmd lock)
@@ -297,13 +365,13 @@
 	(define (activation-lock-or-live manifest features include-dev? cmd)
 	  (let ((lock (matching-activation-lock manifest features include-dev? cmd)))
 	    (cond
-	     ((and lock (lock-materialized? lock include-dev?)) lock)
+	     ((and lock (lock-materialized? lock include-dev? manifest)) lock)
 	     ((and lock (command-locked-mode? cmd))
 	      (dependency-error "locked dependency is not materialized; run `kons fetch` first"
 	           (package-name manifest)))
 	     (lock #f)
 	     ((command-locked-mode? cmd)
-	      (if (file-exists? (activation-lock-path manifest))
+	      (if (file-exists? (activation-lock-path manifest cmd))
 	          (lockfile-error "kons.lock is stale or belongs to another manifest; run `kons update`")
 	          (lockfile-error "kons.lock missing; run `kons update` first")))
 	     (else #f))))

@@ -19,6 +19,8 @@
           ensure-lock-covers-direct-dependencies
           lock-root-matches?
           lock-resolution-current?
+          lock-stale-details
+          stale-lockfile-error
           root-source-hash
           activation-lock-compatible?
           activation-lock-fast-ready?
@@ -210,7 +212,7 @@
          (overrides (applicable-overrides manifest root cmd))
          (direct-deps
           (filter
-           (lambda (dep) (dependency-applies? dep cmd))
+           (lambda (dep) (dependency-applies? dep manifest cmd))
            (append (alist-ref manifest 'dependencies '())
                    (feature-dependencies manifest features)
                    (alist-ref manifest 'dev-dependencies '())))))
@@ -229,14 +231,157 @@
 (define (root-source-hash manifest)
   (path-content-hash (manifest-source-root manifest)))
 
-(define (lock-root-matches? manifest features cmd lock)
+(define (lock-root-field-present? lock field)
+  (let* ((root-form (and (pair? lock) (assq 'root (cdr lock))))
+         (field-form (and root-form (assq field (cdr root-form)))))
+    (and field-form #t)))
+
+(define (context-option-explicit? cmd name)
+  (command-option cmd name #f))
+
+(define (profile-explicit? cmd)
+  (or (command-option cmd "profile" #f)
+      (command-flag? cmd "release")
+      (command-flag? cmd "debug")))
+
+(define-record-type <lock-stale-reason>
+  (make-lock-stale-reason field expected actual)
+  lock-stale-reason?
+  (field lock-stale-reason-field)
+  (expected lock-stale-reason-expected)
+  (actual lock-stale-reason-actual))
+
+(define (lock-context-field-matches? lock field expected explicit?)
+  (if (lock-root-field-present? lock field)
+      (equal?
+       (case field
+         ((scheme) (lock-root-scheme lock))
+         ((dialect) (lock-root-dialect lock))
+         ((target) (lock-root-target lock))
+         ((profile) (lock-root-profile lock))
+         ((compile-mode) (lock-root-compile-mode lock))
+         (else #f))
+       expected)
+      (not explicit?)))
+
+(define (lock-root-context-matches? lock manifest cmd)
+  (and
+   (lock-context-field-matches?
+    lock 'scheme (command-selected-scheme cmd) (context-option-explicit? cmd "scheme"))
+   (lock-context-field-matches?
+    lock 'dialect (command-selected-dialect manifest cmd) #f)
+   (lock-context-field-matches?
+    lock 'target (command-option cmd "target" #f) (context-option-explicit? cmd "target"))
+   (lock-context-field-matches?
+    lock 'profile (command-selected-profile cmd) (profile-explicit? cmd))
+   (lock-context-field-matches?
+    lock 'compile-mode (command-selected-compile-mode cmd) (context-option-explicit? cmd "compile-mode"))))
+
+(define (workspace-shared-lock? cmd)
+  (and (command-option cmd "workspace-root" #f) #t))
+
+(define (lock-root-package-matches? manifest features cmd lock)
   (and (equal? (lock-root-name lock) (package-name manifest))
-	       (equal? (lock-root-version lock) (package-version manifest))
-	       (equal? (lock-root-features lock) features)))
+       (equal? (lock-root-version lock) (package-version manifest))
+       (lock-root-context-matches? lock manifest cmd)
+       (equal? (lock-root-features lock) features)))
+
+(define (lock-root-workspace-context-matches? manifest features cmd lock)
+  (and (workspace-shared-lock? cmd)
+       (lock-root-context-matches? lock manifest cmd)
+       (equal? (lock-root-features lock) features)))
+
+(define (lock-root-matches? manifest features cmd lock)
+  (or (lock-root-package-matches? manifest features cmd lock)
+      (lock-root-workspace-context-matches? manifest features cmd lock)))
 
 (define (lock-section lock name)
   (let ((section (and (pair? lock) (assq name (cdr lock)))))
     (if section (cdr section) '())))
+
+(define (lock-root-field-value lock field)
+  (case field
+    ((name) (lock-root-name lock))
+    ((version) (lock-root-version lock))
+    ((features) (lock-root-features lock))
+    ((scheme) (lock-root-scheme lock))
+    ((dialect) (lock-root-dialect lock))
+    ((target) (lock-root-target lock))
+    ((profile) (lock-root-profile lock))
+    ((compile-mode) (lock-root-compile-mode lock))
+    (else #f)))
+
+(define (reason-if-different field expected actual)
+  (if (equal? expected actual)
+      '()
+      (list (make-lock-stale-reason field expected actual))))
+
+(define (context-reason lock field expected explicit?)
+  (if (lock-root-field-present? lock field)
+      (reason-if-different field expected (lock-root-field-value lock field))
+      (if explicit?
+          (list (make-lock-stale-reason field expected 'missing))
+          '())))
+
+(define (lock-section-count lock section)
+  (length (lock-section lock section)))
+
+(define (section-reason old-lock new-lock section field)
+  (let ((old (lock-section old-lock section))
+        (new (lock-section new-lock section)))
+    (if (equal? old new)
+        '()
+        (list
+         (make-lock-stale-reason
+          field
+          `((count . ,(length new)))
+          `((count . ,(length old))))))))
+
+(define (root-identity-stale-reasons manifest cmd lock)
+  (if (workspace-shared-lock? cmd)
+      '()
+      (append
+       (reason-if-different 'name (package-name manifest) (lock-root-name lock))
+       (reason-if-different 'version (package-version manifest) (lock-root-version lock)))))
+
+(define (lock-stale-reasons manifest features cmd lock include-dev?)
+  (let ((new-lock (make-lock manifest features cmd include-dev? lock)))
+    (append
+     (root-identity-stale-reasons manifest cmd lock)
+     (reason-if-different 'features features (lock-root-features lock))
+     (context-reason lock 'scheme
+                     (command-selected-scheme cmd)
+                     (context-option-explicit? cmd "scheme"))
+     (context-reason lock 'dialect
+                     (command-selected-dialect manifest cmd)
+                     #f)
+     (context-reason lock 'target
+                     (command-option cmd "target" #f)
+                     (context-option-explicit? cmd "target"))
+     (context-reason lock 'profile
+                     (command-selected-profile cmd)
+                     (profile-explicit? cmd))
+     (context-reason lock 'compile-mode
+                     (command-selected-compile-mode cmd)
+                     (context-option-explicit? cmd "compile-mode"))
+     (section-reason lock new-lock 'packages 'packages)
+     (section-reason lock new-lock 'edges 'edges)
+     (section-reason lock new-lock 'overrides 'overrides))))
+
+(define (lock-stale-reason->detail reason)
+  `((reason . stale-lock)
+    (field . ,(lock-stale-reason-field reason))
+    (expected . ,(lock-stale-reason-expected reason))
+    (actual . ,(lock-stale-reason-actual reason))))
+
+(define (lock-stale-details manifest features cmd lock include-dev?)
+  (map lock-stale-reason->detail
+       (lock-stale-reasons manifest features cmd lock include-dev?)))
+
+(define (stale-lockfile-error manifest features cmd lock include-dev?)
+  (apply lockfile-error
+         "kons.lock is stale or belongs to another manifest; run `kons update`"
+         (lock-stale-details manifest features cmd lock include-dev?)))
 
 (define (lock-resolution-equivalent? old-lock new-lock)
   (and (equal? (lock-package-entries old-lock)
@@ -246,19 +391,31 @@
        (equal? (lock-section old-lock 'overrides)
                (lock-section new-lock 'overrides))))
 
+(define (workspace-shared-lock-current? manifest features cmd lock)
+  (and (workspace-shared-lock? cmd)
+       (lock-root-matches? manifest features cmd lock)
+       (guard (exn
+               ((error-object? exn) #f)
+               (else #f))
+         (lock-resolution-equivalent?
+          lock
+          (make-lock manifest features cmd #t lock)))))
+
 (define (lock-resolution-current? manifest features cmd lock)
-  (and (lock-root-matches? manifest features cmd lock)
-       (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))
+  (or (workspace-shared-lock-current? manifest features cmd lock)
+      (and (lock-root-matches? manifest features cmd lock)
+           (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock)))))
 
 (define (activation-lock-compatible? manifest features include-dev? cmd lock)
-  (and (lock-root-matches? manifest features cmd lock)
-       (or (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev? lock))
-           (and (not include-dev?)
-                (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock))))))
+  (or (workspace-shared-lock-current? manifest features cmd lock)
+      (and (lock-root-matches? manifest features cmd lock)
+           (or (lock-resolution-equivalent? lock (make-lock manifest features cmd include-dev? lock))
+               (and (not include-dev?)
+                    (lock-resolution-equivalent? lock (make-lock manifest features cmd #t lock)))))))
 
 (define (activation-lock-fast-ready? manifest features include-dev? cmd lock offline?)
   (and (lock-root-matches? manifest features cmd lock)
-       (lock-materialized? lock include-dev?)
+       (lock-materialized? lock include-dev? manifest)
        (or offline?
            (guard (exn
                    ((error-object? exn) #f)

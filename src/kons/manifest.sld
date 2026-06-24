@@ -33,6 +33,9 @@
           package-build-hooks
           manifest-workspace?
           workspace-members
+          workspace-default-members
+          workspace-package-defaults
+          workspace-dependencies
           manifest-root
           manifest-source-root)
   (import (scheme base)
@@ -176,16 +179,91 @@
 (define (parse-build-hooks hooks)
   (map parse-build-hook hooks))
 
+(define (string-list-contains? value items)
+  (let loop ((remaining items))
+    (cond
+     ((null? remaining) #f)
+     ((string=? value (car remaining)) #t)
+     (else (loop (cdr remaining))))))
+
 (define (parse-workspace form)
   (let ((fields (cdr form)))
-    (ensure-known-fields fields '(members) (source-context 'workspace))
-    (let ((members (field-rest fields 'members '())))
+    (ensure-known-fields
+     fields
+     '(members default-member default-members package dependencies)
+     (source-context 'workspace))
+    (let ((members (field-rest fields 'members '()))
+          (default-members (append (field-rest fields 'default-members '())
+                                   (field-rest fields 'default-member '())))
+          (package-defaults (parse-workspace-package-defaults
+                             (workspace-subform fields 'package)))
+          (dependency-defaults (parse-workspace-dependencies
+                                (workspace-subform fields 'dependencies))))
       (for-each
        (lambda (member)
          (unless (string? member)
            (manifest-error "workspace members must be package directories" member)))
        members)
-      `((members . ,members)))))
+      (for-each
+       (lambda (default-member-name)
+         (unless (string? default-member-name)
+           (manifest-error
+            "workspace default-members entries must be package directories"
+            default-member-name))
+         (unless (string-list-contains? default-member-name members)
+           (manifest-error
+            "workspace default-member is not listed in members"
+            default-member-name)))
+       default-members)
+      `((members . ,members)
+        (default-members . ,default-members)
+        (package . ,package-defaults)
+        (dependencies . ,dependency-defaults)))))
+
+(define (workspace-subform fields key)
+  (let ((found (assq key fields)))
+    (if found (cdr found) '())))
+
+(define (parse-workspace-package-defaults fields)
+  (ensure-known-fields
+   fields
+   '(license repository repo homepage site documentation docs authors)
+   (source-context 'workspace-package))
+  (let ((license (field-ref fields 'license ""))
+        (repository (field-ref fields 'repository (field-ref fields 'repo "")))
+        (homepage (field-ref fields 'homepage (field-ref fields 'site "")))
+        (documentation (field-ref fields 'documentation (field-ref fields 'docs "")))
+        (authors (field-rest fields 'authors '())))
+    (for-each
+     (lambda (field)
+       (unless (string? (cdr field))
+         (manifest-error "workspace package metadata field must be a string" field)))
+     `((license . ,license)
+       (repository . ,repository)
+       (homepage . ,homepage)
+       (documentation . ,documentation)))
+    (for-each
+     (lambda (author)
+       (unless (string? author)
+         (manifest-error "workspace package authors entries must be strings" author)))
+     authors)
+    `((license . ,license)
+      (repository . ,repository)
+      (repo . ,repository)
+      (homepage . ,homepage)
+      (site . ,homepage)
+      (documentation . ,documentation)
+      (docs . ,documentation)
+      (authors . ,authors))))
+
+(define (parse-workspace-dependencies forms)
+  (map (lambda (dep) (parse-dependency dep 'runtime)) forms))
+
+(define-record-type <workspace-inheritance>
+  (make-workspace-inheritance package-defaults dependency-defaults)
+  workspace-inheritance?
+  (package-defaults workspace-inheritance-package-defaults)
+  (dependency-defaults workspace-inheritance-dependency-defaults))
 
 (define (parse-test-scripts tests)
   (for-each
@@ -315,7 +393,7 @@
      (let ((fields (cdr form)))
        (ensure-known-fields
         fields
-        '(name path raw version registry features optional schemes implementations targets)
+        '(name path raw version registry features optional schemes implementations dialects targets profiles compile-modes)
         (source-context 'path-dependency))
        (let ((name (field-ref fields 'name #f))
            (path (field-ref fields 'path #f))
@@ -336,7 +414,7 @@
      (let ((fields (cdr form)))
        (ensure-known-fields
         fields
-        '(name version registry features optional schemes implementations targets)
+        '(name version registry features optional schemes implementations dialects targets profiles compile-modes)
         (source-context 'workspace-dependency))
        (let ((name (field-ref fields 'name #f))
              (selectors (dependency-selectors fields)))
@@ -351,7 +429,7 @@
      (let ((fields (cdr form)))
        (ensure-known-fields
         fields
-        '(name url rev subpath version registry features optional schemes implementations targets)
+        '(name url rev subpath version registry features optional schemes implementations dialects targets profiles compile-modes)
         (source-context 'git-dependency))
        (let ((name (field-ref fields 'name #f))
            (url (field-ref fields 'url #f))
@@ -381,14 +459,14 @@
                         (filter
                          (lambda (item)
                            (not (and (pair? item)
-                                     (member (car item) '(schemes implementations targets)))))
+                                     (member (car item) '(schemes implementations dialects targets profiles compile-modes)))))
                          (cdr form)))))
         (dependency-selectors (cdr form)))))
     ((registry)
      (let ((fields (cdr form)))
        (ensure-known-fields
         fields
-        '(name version registry features optional schemes implementations targets)
+        '(name version registry features optional schemes implementations dialects targets profiles compile-modes)
         (source-context 'registry-dependency))
        (let ((name (field-ref fields 'name #f))
          (version (field-ref fields 'version "*"))
@@ -438,10 +516,16 @@
 (define (dependency-selectors fields)
   (let ((schemes (append (field-rest fields 'schemes '())
                          (field-rest fields 'implementations '())))
-        (targets (field-rest fields 'targets '())))
+        (dialects (field-rest fields 'dialects '()))
+        (targets (field-rest fields 'targets '()))
+        (profiles (field-rest fields 'profiles '()))
+        (compile-modes (field-rest fields 'compile-modes '())))
     (append
      (if (null? schemes) '() `((schemes . ,schemes)))
-     (if (null? targets) '() `((targets . ,targets))))))
+     (if (null? dialects) '() `((dialects . ,dialects)))
+     (if (null? targets) '() `((targets . ,targets)))
+     (if (null? profiles) '() `((profiles . ,profiles)))
+     (if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
 
 (define (parse-dependency-block exprs kind scope)
   (let ((block (find-form kind exprs)))
@@ -474,7 +558,152 @@
 (define (parse-manifest path)
   (unless (file-exists? path)
     (manifest-error "manifest not found" path))
+  (let ((manifest (parse-manifest/raw path)))
+    (if (manifest-workspace? manifest)
+        manifest
+        (let ((workspace (containing-workspace-manifest path)))
+          (if workspace
+              (apply-workspace-inheritance workspace manifest)
+              manifest)))))
+
+(define (parse-manifest/raw path)
   (parse-manifest-exprs path (read-all-exprs path)))
+
+(define (same-file-path? a b)
+  (string=? (absolute-path a) (absolute-path b)))
+
+(define (workspace-member-root workspace member)
+  (path-join (manifest-root workspace) member))
+
+(define (workspace-contains-manifest? workspace manifest-path)
+  (let ((root (dirname manifest-path)))
+    (let loop ((members (workspace-members workspace)))
+      (cond
+       ((null? members) #f)
+       ((same-file-path? root (workspace-member-root workspace (car members))) #t)
+       (else (loop (cdr members)))))))
+
+(define (containing-workspace-manifest manifest-path)
+  (let* ((manifest-path (absolute-path manifest-path))
+         (package-root (dirname manifest-path)))
+    (let loop ((dir (dirname package-root)))
+      (cond
+       ((or (not dir) (string=? dir package-root)) #f)
+       (else
+        (let ((workspace-path (path-join dir "kons.scm"))
+              (parent (dirname dir)))
+          (cond
+           ((string=? parent dir) #f)
+           ((not (file-exists? workspace-path))
+            (loop parent))
+           ((same-file-path? workspace-path manifest-path)
+            (loop parent))
+           (else
+            (let ((workspace (parse-manifest/raw workspace-path)))
+              (if (and (manifest-workspace? workspace)
+                       (workspace-contains-manifest? workspace manifest-path))
+                  workspace
+                  (loop parent)))))))))))
+
+(define (alist-replace entries key value)
+  (let loop ((items entries) (out '()) (done? #f))
+    (cond
+     ((null? items)
+      (reverse (if done? out (cons (cons key value) out))))
+     ((eq? (caar items) key)
+      (loop (cdr items) (cons (cons key value) out) #t))
+     (else (loop (cdr items) (cons (car items) out) done?)))))
+
+(define (alist-has-key? entries key)
+  (and (assq key entries) #t))
+
+(define (string-field-empty? fields key)
+  (string=? (alist-ref fields key "") ""))
+
+(define (inherit-string-field fields defaults key)
+  (let ((value (alist-ref defaults key "")))
+    (if (and (string-field-empty? fields key)
+             (not (string=? value "")))
+        (alist-replace fields key value)
+        fields)))
+
+(define (inherit-authors-field fields defaults)
+  (let ((authors (alist-ref defaults 'authors '())))
+    (if (and (null? (alist-ref fields 'authors '()))
+             (not (null? authors)))
+        (alist-replace fields 'authors authors)
+        fields)))
+
+(define inheritable-string-fields
+  '(license repository repo homepage site documentation docs))
+
+(define (inherit-package-defaults package defaults)
+  (let loop ((fields inheritable-string-fields) (pkg package))
+    (if (null? fields)
+        (inherit-authors-field pkg defaults)
+        (loop (cdr fields) (inherit-string-field pkg defaults (car fields))))))
+
+(define (workspace-dependency-default-for dependency defaults)
+  (let ((name (alist-ref dependency 'name '())))
+    (let loop ((items defaults))
+      (cond
+       ((null? items) #f)
+       ((equal? name (alist-ref (car items) 'name '())) (car items))
+       (else (loop (cdr items)))))))
+
+(define (dependency-version-inheritable? dependency)
+  (or (not (alist-has-key? dependency 'version))
+      (string=? (alist-ref dependency 'version "") "*")))
+
+(define (inherit-dependency-field dependency defaults key)
+  (let ((value (alist-ref defaults key #f)))
+    (if (and value (not (alist-ref dependency key #f)))
+        (alist-replace dependency key value)
+        dependency)))
+
+(define (inherit-dependency-default dependency defaults)
+  (let ((version (alist-ref defaults 'version #f)))
+    (inherit-dependency-field
+     (if (and version (dependency-version-inheritable? dependency))
+         (alist-replace dependency 'version version)
+         dependency)
+     defaults
+     'registry)))
+
+(define (inherit-dependency-defaults dependencies defaults)
+  (map
+   (lambda (dependency)
+     (let ((matching-default (workspace-dependency-default-for dependency defaults)))
+       (if matching-default
+           (inherit-dependency-default dependency matching-default)
+           dependency)))
+   dependencies))
+
+(define (apply-workspace-inheritance workspace manifest)
+  (let* ((inheritance
+          (make-workspace-inheritance
+           (workspace-package-defaults workspace)
+           (workspace-dependencies workspace)))
+         (package (alist-ref manifest 'package '()))
+         (inherited-package
+          (inherit-package-defaults
+           package
+           (workspace-inheritance-package-defaults inheritance)))
+         (inherited-dependencies
+          (inherit-dependency-defaults
+           (alist-ref manifest 'dependencies '())
+           (workspace-inheritance-dependency-defaults inheritance)))
+         (inherited-dev-dependencies
+          (inherit-dependency-defaults
+           (alist-ref manifest 'dev-dependencies '())
+           (workspace-inheritance-dependency-defaults inheritance))))
+    (alist-replace
+     (alist-replace
+      (alist-replace manifest 'package inherited-package)
+      'dependencies
+      inherited-dependencies)
+     'dev-dependencies
+     inherited-dev-dependencies)))
 
 (define (alist-ref alist key default)
   (let ((found (assoc key alist)))
@@ -560,6 +789,15 @@
 
 (define (workspace-members manifest)
   (alist-ref (alist-ref manifest 'workspace '()) 'members '()))
+
+(define (workspace-default-members manifest)
+  (alist-ref (alist-ref manifest 'workspace '()) 'default-members '()))
+
+(define (workspace-package-defaults manifest)
+  (alist-ref (alist-ref manifest 'workspace '()) 'package '()))
+
+(define (workspace-dependencies manifest)
+  (alist-ref (alist-ref manifest 'workspace '()) 'dependencies '()))
 
 (define (manifest-root manifest)
   (dirname (alist-ref manifest 'path "kons.scm")))

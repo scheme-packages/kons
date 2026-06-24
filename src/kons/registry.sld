@@ -37,6 +37,7 @@
   (import (scheme base)
           (scheme file)
           (scheme process-context)
+          (scheme write)
           (kons util)
           (kons compat json)
           (kons names)
@@ -112,6 +113,69 @@
 (define (registry-entry-default? entry)
   (entry-field entry 'default #f))
 
+(define (registry-entry-trust-required? entry)
+  (or (entry-field entry 'trust-required #f)
+      (eq? (entry-field entry 'trust 'none) 'required)))
+
+(define-record-type <registry-signing-key>
+  (make-registry-signing-key id public-key)
+  registry-signing-key?
+  (id registry-signing-key-record-id)
+  (public-key registry-signing-key-record-public-key))
+
+(define (registry-signing-key-path path)
+  (if (or (not (string? path)) (string=? path ""))
+      ""
+      (if (absolute-path? path)
+          path
+          (path-join (registry-config-root) path))))
+
+(define (registry-entry-signing-key-id entry)
+  (let ((key-id (entry-field entry 'key-id "")))
+    (if (string=? key-id "")
+        (entry-field entry 'signing-key-id "")
+        key-id)))
+
+(define (registry-entry-signing-public-key entry)
+  (let ((key-file (entry-field entry 'key-file "")))
+    (cond
+     ((not (string=? key-file ""))
+      (registry-signing-key-path key-file))
+     (else
+      (registry-signing-key-path (entry-field entry 'signing-public-key ""))))))
+
+(define (registry-entry-legacy-signing-key entry)
+  (let ((key-id (registry-entry-signing-key-id entry))
+        (public-key (registry-entry-signing-public-key entry)))
+    (if (string=? public-key "")
+        '()
+        (list (make-registry-signing-key key-id public-key)))))
+
+(define (registry-signing-key-form? value)
+  (and (pair? value) (eq? (car value) 'key)))
+
+(define (registry-signing-key-from-form form)
+  (let* ((fields (cdr form))
+         (id (field-ref fields 'id (field-ref fields 'key-id "")))
+         (file (field-ref fields 'file (field-ref fields 'key-file "")))
+         (public-key (registry-signing-key-path
+                      (if (string=? file "")
+                          (field-ref fields 'signing-public-key "")
+                          file))))
+    (and (not (string=? public-key ""))
+         (make-registry-signing-key id public-key))))
+
+(define (registry-entry-signing-keys entry)
+  (append
+   (registry-entry-legacy-signing-key entry)
+   (let loop ((items (field-rest (cdr entry) 'keys '())) (out '()))
+     (cond
+      ((null? items) (reverse out))
+      ((registry-signing-key-form? (car items))
+       (let ((key (registry-signing-key-from-form (car items))))
+         (loop (cdr items) (if key (cons key out) out))))
+      (else (loop (cdr items) out))))))
+
 (define (find-registry-entry name)
   (let loop ((items (registry-list)))
     (cond
@@ -146,6 +210,45 @@
     (let ((entry (find-registry-entry name)))
       (unless entry (dependency-error "unknown registry" name))
       (registry-entry-url entry)))))
+
+(define (registry-entry-for-ref registry)
+  (let* ((name (registry-ref registry))
+         (url (registry-url registry)))
+    (let loop ((items (registry-list)))
+      (cond
+       ((null? items) #f)
+       ((and (pair? (car items))
+             (eq? (caar items) 'registry)
+             (or (string=? (registry-entry-name (car items)) name)
+                 (string=? (registry-entry-url (car items)) url)))
+        (car items))
+       (else (loop (cdr items)))))))
+
+(define (registry-trust-required? registry)
+  (let ((entry (registry-entry-for-ref registry)))
+    (and entry (registry-entry-trust-required? entry))))
+
+(define (registry-signing-key-id registry)
+  (let ((entry (registry-entry-for-ref registry)))
+    (if entry (registry-entry-signing-key-id entry) "")))
+
+(define (registry-signing-public-key registry)
+  (let ((entry (registry-entry-for-ref registry)))
+    (if entry (registry-entry-signing-public-key entry) "")))
+
+(define (registry-signing-keys registry)
+  (let ((entry (registry-entry-for-ref registry)))
+    (if entry (registry-entry-signing-keys entry) '())))
+
+(define (registry-signing-key-for-id registry key-id)
+  (let loop ((keys (registry-signing-keys registry)) (fallback #f))
+    (cond
+     ((null? keys) fallback)
+     ((string=? key-id (registry-signing-key-record-id (car keys)))
+      (car keys))
+     ((and (not fallback) (string=? (registry-signing-key-record-id (car keys)) ""))
+      (loop (cdr keys) (car keys)))
+     (else (loop (cdr keys) fallback)))))
 
 (define (string-prefix? prefix s)
   (let ((plen (string-length prefix))
@@ -190,21 +293,45 @@
         (loop (cdr items) (cons new-entry out) #t))
        (else (loop (cdr items) (cons (car items) out) done?))))))
 
+(define (registry-entry-set-field entry key value)
+  (let loop ((fields (cdr entry)) (out '()) (done? #f))
+    (cond
+     ((null? fields)
+      (cons 'registry
+            (reverse (if done? out (cons (list key value) out)))))
+     ((and (pair? (car fields)) (eq? (caar fields) key))
+      (loop (cdr fields) (cons (list key value) out) #t))
+     (else
+      (loop (cdr fields) (cons (car fields) out) done?)))))
+
+(define (registry-entry-set-fields entry fields)
+  (let loop ((items fields) (out entry))
+    (if (null? items)
+        out
+        (loop (cdr items)
+              (registry-entry-set-field out (caar items) (cdar items))))))
+
 (define (clear-default entries)
   (map (lambda (entry)
          (if (and (pair? entry) (eq? (car entry) 'registry))
-             `(registry
-               (name ,(registry-entry-name entry))
-               (url ,(registry-entry-url entry))
-               (default #f))
+             (registry-entry-set-field entry 'default #f)
              entry))
        entries))
 
-(define (registry-add! name url default?)
-  (write-registry-list!
-   (replace-named-entry
-    (if default? (clear-default (registry-list)) (registry-list))
-    `(registry (name ,name) (url ,(without-trailing-slash url)) (default ,default?)))))
+(define (registry-add! name url default? . maybe-fields)
+  (let* ((old-entry (find-registry-entry name))
+         (extra-fields (if (null? maybe-fields) '() (car maybe-fields)))
+         (entry (registry-entry-set-fields
+                 (or old-entry '(registry))
+                 (append
+                  `((name . ,name)
+                    (url . ,(without-trailing-slash url))
+                    (default . ,default?))
+                  extra-fields))))
+    (write-registry-list!
+     (replace-named-entry
+      (if default? (clear-default (registry-list)) (registry-list))
+      entry))))
 
 (define (registry-remove! name)
   (write-registry-list!
@@ -220,7 +347,7 @@
     (write-registry-list!
      (replace-named-entry
       (clear-default (registry-list))
-      `(registry (name ,name) (url ,(registry-entry-url entry)) (default #t))))))
+      (registry-entry-set-field entry 'default #t)))))
 
 (define (replace-credential credentials new-entry)
   (let ((name (entry-field new-entry 'registry "")))
@@ -298,6 +425,9 @@
    (registry-metadata-root registry)
    (string-append (safe-store-token name) "-versions.json")))
 
+(define (registry-package-versions-signature-cache-path registry name)
+  (string-append (registry-package-versions-cache-path registry name) ".sig.json"))
+
 (define (registry-metadata-cache-path? path)
   (string-contains? path "/store/registry/metadata/"))
 
@@ -317,6 +447,105 @@
                              path
                              (error-object-message exn))))
     (call-with-input-file path json-read)))
+
+(define (write-text-file path text)
+  (call-with-output-file path
+    (lambda (out)
+      (display text out))))
+
+(define (decode-base64-file input output)
+  (= (shell-command-status
+      (string-append
+       "openssl base64 -d -A -in "
+       (shell-quote input)
+       " -out "
+       (shell-quote output)))
+     0))
+
+(define (verify-ed25519-signature public-key payload signature)
+  (= (shell-command-status
+      (string-append
+       "openssl pkeyutl -verify -rawin -pubin -inkey "
+       (shell-quote public-key)
+       " -in "
+       (shell-quote payload)
+       " -sigfile "
+       (shell-quote signature)
+       " >/dev/null 2>&1"))
+     0))
+
+(define-record-type <signed-registry-payload>
+  (make-signed-registry-payload version alg key-id payload-base64 signature-base64)
+  signed-registry-payload?
+  (version signed-registry-payload-version)
+  (alg signed-registry-payload-alg)
+  (key-id signed-registry-payload-key-id)
+  (payload-base64 signed-registry-payload-payload-base64)
+  (signature-base64 signed-registry-payload-signature-base64))
+
+(define (json-signed-registry-payload signed)
+  (if signed
+      (make-signed-registry-payload
+       (json-ref signed 'version 0)
+       (json-string-ref signed 'alg "")
+       (json-string-ref signed 'keyId "")
+       (json-string-ref signed 'payloadBase64 "")
+       (json-string-ref signed 'signatureBase64 ""))
+      #f))
+
+(define (copy-file! source dest)
+  (run-command
+   (string-append "cp " (shell-quote source) " " (shell-quote dest))))
+
+(define (same-file-contents? left right)
+  (= (shell-command-status
+      (string-append "cmp -s " (shell-quote left) " " (shell-quote right)))
+     0))
+
+(define (verify-registry-signed-envelope registry name envelope-path payload-path refresh?)
+  (let* ((data (registry-json-read envelope-path))
+         (payload (json-signed-registry-payload (json-ref data 'signed #f)))
+         (payload-b64-path (temporary-file-path "kons-registry-payload.b64"))
+         (decoded-payload-path (temporary-file-path "kons-registry-payload.json"))
+         (signature-b64-path (temporary-file-path "kons-registry-signature.b64"))
+         (signature-path (temporary-file-path "kons-registry-signature.bin")))
+    (unless payload
+      (dependency-error "registry metadata signature missing" registry name))
+    (unless (= (signed-registry-payload-version payload) 1)
+      (dependency-error "registry metadata signature version is unsupported" registry name))
+    (unless (string=? (signed-registry-payload-alg payload) "ed25519")
+      (dependency-error "registry metadata signature algorithm is unsupported" registry name))
+    (let* ((signed-key-id (signed-registry-payload-key-id payload))
+           (signing-key (registry-signing-key-for-id registry signed-key-id)))
+      (unless signing-key
+        (dependency-error "registry metadata signing key is not trusted" registry name signed-key-id))
+      (let ((public-key (registry-signing-key-record-public-key signing-key)))
+        (when (string=? public-key "")
+          (dependency-error "registry signing public key is required" registry name))
+        (unless (file-exists? public-key)
+          (dependency-error "registry signing public key is missing" public-key))
+        (run-command (string-append "mkdir -p " (shell-quote (dirname payload-path))))
+        (write-text-file payload-b64-path (signed-registry-payload-payload-base64 payload))
+        (write-text-file signature-b64-path (signed-registry-payload-signature-base64 payload))
+        (unless (decode-base64-file payload-b64-path decoded-payload-path)
+          (dependency-error "registry metadata signed payload could not be decoded" registry name))
+        (unless (decode-base64-file signature-b64-path signature-path)
+          (dependency-error "registry metadata signature could not be decoded" registry name))
+        (unless (verify-ed25519-signature public-key decoded-payload-path signature-path)
+          (dependency-error "registry metadata signature mismatch" registry name))))
+    (cond
+     (refresh?
+      (copy-file! decoded-payload-path payload-path))
+     ((not (file-exists? payload-path))
+      (dependency-error "verified registry metadata cache is missing and offline/frozen mode is active" name))
+     ((not (same-file-contents? decoded-payload-path payload-path))
+      (dependency-error "verified registry metadata cache does not match its signature; run `kons update`" name)))
+    payload-path))
+
+(define (verified-registry-metadata-path registry name envelope-path payload-path refresh?)
+  (if (registry-trust-required? registry)
+      (verify-registry-signed-envelope registry name envelope-path payload-path refresh?)
+      envelope-path))
 
 (define (json-ref object key default)
   (let ((found (and (pair? object) (assq key object))))
@@ -351,6 +580,15 @@
                  (or (symbol? item) (and (string? item) (non-empty-string? item))))
                (json-array->list value))))
 
+(define (registry-json-string-list value)
+  (filter string?
+          (map (lambda (item)
+                 (cond
+                  ((string? item) item)
+                  ((symbol? item) (symbol->string item))
+                  (else #f)))
+               (json-array->list value))))
+
 (define (absolute-http-url? text)
   (or (string-prefix? "http://" text)
       (string-prefix? "https://" text)))
@@ -367,7 +605,14 @@
       (string-append api "/api/v1/packages/" package-name "/" version "/download")))))
 
 (define (registry-json-dependency registry dep)
-  (let ((features (registry-json-symbol-list (json-ref dep 'features '#()))))
+  (let ((features (registry-json-symbol-list (json-ref dep 'features '#())))
+        (schemes (registry-json-symbol-list (json-ref dep 'schemes '#())))
+        (implementations (registry-json-symbol-list (json-ref dep 'implementations '#())))
+        (dialects (registry-json-symbol-list (json-ref dep 'dialects '#())))
+        (targets (registry-json-string-list (json-ref dep 'targets '#())))
+        (profiles (registry-json-symbol-list (json-ref dep 'profiles '#())))
+        (compile-modes (registry-json-symbol-list (json-ref dep 'compileModes '#())))
+        (legacy-target (json-string-ref dep 'target "")))
     `((name . ,(registry-json-name (json-string-ref dep 'name "")))
       (version . ,(let ((req (json-string-ref dep 'req "")))
                     (if (string=? req "")
@@ -377,7 +622,20 @@
                      (if (string=? dep-registry "") registry dep-registry)))
       (kind . ,(registry-json-symbol (json-ref dep 'kind "runtime") 'runtime))
       ,@(if (json-bool-ref dep 'optional) '((optional . #t)) '())
-      ,@(if (null? features) '() `((features . ,features))))))
+      ,@(if (null? features) '() `((features . ,features)))
+      ,@(if (null? (append schemes implementations)) '() `((schemes . ,(append schemes implementations))))
+      ,@(if (null? dialects) '() `((dialects . ,dialects)))
+      ,@(let ((all-targets (if (and (null? targets) (non-empty-string? legacy-target))
+                               (list legacy-target)
+                               targets)))
+          (if (null? all-targets) '() `((targets . ,all-targets))))
+      ,@(if (null? profiles) '() `((profiles . ,profiles)))
+      ,@(if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
+
+(define (registry-json-feature-dependency registry dep)
+  `((feature . ,(registry-json-symbol (json-ref dep 'feature "") 'unknown))
+    (dependencies . ,(map (lambda (item) (registry-json-dependency registry item))
+                          (json-array->list (json-ref dep 'dependencies '#()))))))
 
 (define (registry-json-candidate registry api package-name row)
   (let ((version (json-string-ref row 'version ""))
@@ -389,6 +647,9 @@
       (download . ,(registry-version-download api package-name version row))
       ,@(if (json-bool-ref row 'yanked) '((yanked . #t)) '())
       ,@(if (null? features) '() `((features . ,features)))
+      (feature-dependencies
+       . ,(map (lambda (dep) (registry-json-feature-dependency registry dep))
+               (json-array->list (json-ref row 'featureDependencies '#()))))
       (dependencies . ,(map (lambda (dep) (registry-json-dependency registry dep))
                             (json-array->list (json-ref row 'dependencies '#())))))))
 
@@ -399,6 +660,126 @@
     (map (lambda (row)
            (registry-json-candidate registry api package-name row))
          versions)))
+
+(define (registry-package-sparse-index-cache-path registry name)
+  (path-join
+   (registry-metadata-root registry)
+   (string-append (safe-store-token name) "-index.jsonl")))
+
+(define (lowercase-ascii-alphanumeric? ch)
+  (or (and (char>=? ch #\a) (char<=? ch #\z))
+      (and (char>=? ch #\0) (char<=? ch #\9))))
+
+(define (registry-sparse-token name)
+  (list->string
+   (map (lambda (ch)
+          (if (char=? ch #\/) #\- ch))
+        (string->list name))))
+
+(define (registry-sparse-compact-token token)
+  (list->string
+   (filter lowercase-ascii-alphanumeric?
+           (string->list token))))
+
+(define (pad-sparse-path-part text)
+  (cond
+   ((= (string-length text) 0) "__")
+   ((= (string-length text) 1) (string-append text "_"))
+   (else text)))
+
+(define (registry-sparse-index-path name)
+  (let* ((token (registry-sparse-token name))
+         (compact (registry-sparse-compact-token token))
+         (first-end (min 2 (string-length compact)))
+         (second-end (min 4 (string-length compact)))
+         (first (pad-sparse-path-part (substring compact 0 first-end)))
+         (second (pad-sparse-path-part (substring compact first-end second-end))))
+    (string-append "/index/" first "/" second "/" token)))
+
+(define (read-sparse-index-lines path)
+  (filter non-empty-string?
+          (string-split
+           (call-with-input-file path read-all-text)
+           #\newline)))
+
+(define (verified-sparse-index-entry registry name line refresh?)
+  (let ((envelope-path (temporary-file-path "kons-registry-index-envelope.json"))
+        (payload-path (temporary-file-path "kons-registry-index-payload.json")))
+    (write-text-file envelope-path line)
+    (verify-registry-signed-envelope registry name envelope-path payload-path #t)
+    (let ((data (registry-json-read payload-path)))
+      (delete-temp-file envelope-path)
+      (delete-temp-file payload-path)
+      data)))
+
+(define (sparse-index-dependency registry dep)
+  `((name . ,(json-string-ref dep 'name ""))
+    (req . ,(json-string-ref dep 'req "*"))
+    (kind . ,(json-ref dep 'kind "runtime"))
+    (registry . ,(let ((dep-registry (json-string-ref dep 'registry "")))
+                   (if (string=? dep-registry "") registry dep-registry)))
+    (optional . ,(json-bool-ref dep 'optional))
+    ,@(let ((target (json-string-ref dep 'target "")))
+        (if (string=? target "") '() `((target . ,target))))
+    (schemes . ,(json-ref dep 'schemes '#()))
+    (implementations . ,(json-ref dep 'implementations '#()))
+    (dialects . ,(json-ref dep 'dialects '#()))
+    (targets . ,(json-ref dep 'targets '#()))
+    (profiles . ,(json-ref dep 'profiles '#()))
+    (compileModes . ,(json-ref dep 'compileModes '#()))
+    (features . ,(json-ref dep 'features '#()))))
+
+(define (sparse-index-version-row registry api entry)
+  (let* ((name (json-string-ref entry 'name ""))
+         (version (json-string-ref entry 'vers ""))
+         (download (string-append api "/api/v1/packages/" name "/" version "/download"))
+         (dependencies
+          (list->vector
+           (map (lambda (dep)
+                  (sparse-index-dependency registry dep))
+                (json-array->list (json-ref entry 'deps '#()))))))
+    (list
+     (cons 'version version)
+     (cons 'checksum (json-string-ref entry 'checksum ""))
+     (cons 'downloadUrl download)
+     (cons 'yanked (json-bool-ref entry 'yanked))
+     (cons 'publishedAt (json-string-ref entry 'publishedAt ""))
+     (cons 'provenance (json-ref entry 'provenance '()))
+     (cons 'dialects (json-ref entry 'dialects '#()))
+     (cons 'features (json-ref entry 'features '#()))
+     (cons 'featureDependencies (json-ref entry 'featureDependencies '#()))
+     (cons 'dependencies dependencies))))
+
+(define (sparse-index-entries->versions-payload registry api name entries)
+  `((package . ,name)
+    (versions . ,(list->vector
+                  (map (lambda (entry)
+                         (sparse-index-version-row registry api entry))
+                       entries)))))
+
+(define (write-registry-json-file path value)
+  (run-command (string-append "mkdir -p " (shell-quote (dirname path))))
+  (call-with-output-file path
+    (lambda (out)
+      (json-write value out))))
+
+(define (verified-sparse-index-lines->payload registry name sparse-path cache-path refresh?)
+  (let* ((api (without-trailing-slash (registry-url registry)))
+         (entries (map (lambda (line)
+                         (verified-sparse-index-entry registry name line refresh?))
+                       (read-sparse-index-lines sparse-path)))
+         (payload (sparse-index-entries->versions-payload registry api name entries))
+         (fresh-path (temporary-file-path "kons-registry-index-versions.json")))
+    (write-registry-json-file fresh-path payload)
+    (cond
+     (refresh?
+      (copy-file! fresh-path cache-path))
+     ((not (file-exists? cache-path))
+      (dependency-error "verified registry metadata cache is missing and offline/frozen mode is active" name))
+     ((not (same-file-contents? fresh-path cache-path))
+      (dependency-error "verified registry metadata cache does not match its signature; run `kons update`" name)))
+    (delete-temp-file fresh-path)
+    cache-path))
 
 (define (json->display-string value)
   (cond
@@ -571,7 +952,38 @@
          (name-text (if (string? name) name (name->string name)))
          (offline? (and (pair? maybe-offline?) (car maybe-offline?)))
          (cache-path (registry-package-versions-cache-path registry name-text))
+         (signature-cache-path
+          (registry-package-versions-signature-cache-path registry name-text))
+         (sparse-cache-path
+          (registry-package-sparse-index-cache-path registry name-text))
          (json (cond
+                ((registry-trust-required? registry)
+                 (let ((sparse-json
+                        (cond
+                         ((and offline? (file-exists? sparse-cache-path))
+                          sparse-cache-path)
+                         (offline?
+                          (dependency-error
+                           "registry metadata cache is missing and offline/frozen mode is active"
+                           name-text))
+                         (else
+                          (let ((fresh (registry-http-json
+                                        registry
+                                        (registry-sparse-index-path name-text))))
+                            (run-command
+                             (string-append "mkdir -p "
+                                            (shell-quote (dirname sparse-cache-path))))
+                            (copy-file! fresh sparse-cache-path)
+                            fresh)))))
+                   (verified-sparse-index-lines->payload
+                    registry
+                    name-text
+                    sparse-json
+                    cache-path
+                    (not offline?))))
+                ((and offline? (registry-trust-required? registry)
+                      (file-exists? signature-cache-path))
+                 signature-cache-path)
                 ((and offline? (file-exists? cache-path)) cache-path)
                 (offline?
                  (dependency-error "registry metadata cache is missing and offline/frozen mode is active" name-text))
@@ -580,12 +992,28 @@
                                registry
                                (string-append "/api/v1/packages/"
                                               (url-encode name-text)
-                                              "/versions?includeYanked=1"))))
+                                              "/versions?includeYanked=1"
+                                              (if (registry-trust-required? registry)
+                                                  "&signed=1"
+                                                  "")))))
                    (run-command (string-append "mkdir -p " (shell-quote (dirname cache-path))))
-                   (run-command (string-append "cp " (shell-quote fresh) " " (shell-quote cache-path)))
+                   (copy-file!
+                    fresh
+                    (if (registry-trust-required? registry)
+                        signature-cache-path
+                        cache-path))
                    fresh))))
+         (metadata-path
+          (if (registry-trust-required? registry)
+              json
+              (verified-registry-metadata-path
+               registry
+               name-text
+               json
+               cache-path
+               (not offline?))))
          (api (without-trailing-slash (registry-url registry))))
-    (registry-json-candidates json registry api)))
+    (registry-json-candidates metadata-path registry api)))
 
 (define (download-registry-package! registry name version checksum download offline?)
   (let* ((archive (registry-archive-path registry name version checksum))
@@ -601,7 +1029,12 @@
       (let ((actual (capture-first-line
                      (string-append "sha256sum " (shell-quote archive) " | awk '{print $1}'"))))
         (unless (string=? actual checksum)
-          (dependency-error "registry archive checksum mismatch" name version checksum actual)))
+          (dependency-error "registry archive checksum mismatch"
+                            name
+                            version
+                            checksum
+                            actual
+                            '(diagnostic-code . "checksum-mismatch"))))
       (run-command (string-append "rm -rf " (shell-quote root)))
       (run-command (string-append "mkdir -p " (shell-quote root)))
       (run-command

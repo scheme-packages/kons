@@ -74,6 +74,10 @@
     'help: "Log level."
     'value-help: "LEVEL"
     'allowed: '("quiet" "error" "warn" "warning" "info" "debug" "trace" "verbose"))
+  (option "message-format"
+    'help: "Diagnostic message format."
+    'value-help: "FORMAT"
+    'allowed: '("text" "json"))
   (option "jobs"
     'abbr: "j"
     'help: "Maximum parallel jobs to run."
@@ -141,6 +145,10 @@
     'help: "Log level."
     'value-help: "LEVEL"
     'allowed: '("quiet" "error" "warn" "warning" "info" "debug" "trace" "verbose"))
+  (option "message-format"
+    'help: "Diagnostic message format."
+    'value-help: "FORMAT"
+    'allowed: '("text" "json"))
   (option "jobs"
     'abbr: "j"
     'help: "Maximum parallel jobs to run."
@@ -253,6 +261,10 @@
     'help: "Log level."
     'value-help: "LEVEL"
     'allowed: '("quiet" "error" "warn" "warning" "info" "debug" "trace" "verbose"))
+  (option "message-format"
+    'help: "Diagnostic message format."
+    'value-help: "FORMAT"
+    'allowed: '("text" "json"))
   (option "jobs"
     'abbr: "j"
     'help: "Maximum parallel jobs to run."

@@ -1,16 +1,16 @@
-(define-library (kons commands resolve)
-  (export make-resolve-command)
+(define-library (kons commands dependency-scan)
+  (export make-dependency-scan-command)
   (import (scheme base)
           (args runner)
           (kons options)
           (kons commands framework)
-          (kons actions resolve))
+          (kons actions dependency-scan))
 
   (begin
-    (define (make-resolve-command runner)
+    (define (make-dependency-scan-command runner)
       (make-kons-command
        runner
-       (kons-command-spec "resolve" cmd-resolve "Print the resolved dependency graph shape." #f #t #f #f #f)
+       (kons-command-spec "dependency-scan" cmd-dependency-scan "Scan source imports." #t #t #t #f #f)
        (make-command-grammar
         (list 'option "format"
           'help: "Output format: sexp or json."

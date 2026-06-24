@@ -1,8 +1,10 @@
 (define-library (kons actions paths)
   (export project-artifact-path
           project-lock-path
+          command-lock-path
           project-kons-path
           read-existing-lock
+          read-existing-command-lock
           same-path?
           parent-path
           find-package-root-for-source-root
@@ -20,6 +22,7 @@
           (scheme file)
           (kons util)
           (kons manifest)
+          (kons options)
           (kons lock))
 
   (begin
@@ -32,11 +35,22 @@
     (define (project-lock-path manifest)
       (project-artifact-path manifest "kons.lock"))
 
+    (define (command-lock-path manifest cmd)
+      (let ((workspace-root (command-option cmd "workspace-root" #f)))
+        (if workspace-root
+            (path-join (dirname workspace-root) "kons.lock")
+            (project-lock-path manifest))))
+
     (define (project-kons-path manifest path)
       (project-artifact-path manifest (path-join ".kons" path)))
 
     (define (read-existing-lock manifest)
       (let ((path (project-lock-path manifest)))
+        (and (file-exists? path)
+             (read-lockfile path))))
+
+    (define (read-existing-command-lock manifest cmd)
+      (let ((path (command-lock-path manifest cmd)))
         (and (file-exists? path)
              (read-lockfile path))))
 

@@ -9,6 +9,7 @@
           workspace-member-records-from-manifest
           workspace-member-matches?
           workspace-member-records
+          workspace-default-member-records
           selected-workspace-member-records
           workspace-member-argv
           run-workspace-member!
@@ -21,6 +22,7 @@
           workspace-install-all?
           workspace-member-has-default-install-target?
           workspace-install-all-records
+          workspace-default-dispatch?
           dispatch-workspace
           command-spec-name
           command-spec-proc
@@ -136,16 +138,32 @@
         (manifest-error "workspace has no members" (command-manifest-path cmd)))
       (workspace-member-records-from-manifest workspace))))
 
+(define (find-workspace-member-record records selector)
+  (let ((matches (filter (lambda (record)
+                           (workspace-member-matches? record selector))
+                         records)))
+    (cond
+     ((null? matches) (usage-error "workspace package not found" selector))
+     ((not (null? (cdr matches))) (usage-error "workspace package selector is ambiguous" selector))
+     (else (car matches)))))
+
+(define (workspace-default-member-records cmd)
+  (let* ((workspace (parse-manifest (command-manifest-path cmd)))
+         (defaults (workspace-default-members workspace))
+         (records (workspace-member-records-from-manifest workspace)))
+    (unless (manifest-workspace? workspace)
+      (usage-error "selected manifest is not a workspace" (command-manifest-path cmd)))
+    (when (null? defaults)
+      (usage-error
+       "selected manifest is a workspace; use --workspace, --package NAME, or default-members"))
+    (map (lambda (selector)
+           (find-workspace-member-record records selector))
+         defaults)))
+
 (define (selected-workspace-member-records cmd)
   (let ((selector (command-option cmd "package" #f)))
     (if selector
-        (let ((matches (filter (lambda (record)
-                                 (workspace-member-matches? record selector))
-                               (workspace-member-records cmd))))
-          (cond
-           ((null? matches) (usage-error "workspace package not found" selector))
-           ((not (null? (cdr matches))) (usage-error "workspace package selector is ambiguous" selector))
-           (else matches)))
+        (list (find-workspace-member-record (workspace-member-records cmd) selector))
         (workspace-member-records cmd))))
 
 (define (workspace-member-argv cmd record)
@@ -164,9 +182,11 @@
            (usage-error "invalid command line" exn)))
     (command-runner-run runner (workspace-member-argv cmd record))))
 
-(define (guard-workspace-root-package-command! name package-manifest? cmd)
+(define (guard-workspace-root-package-command! name package-manifest? cmd . maybe-allow-workspace?)
   (when (and package-manifest?
-             (not (workspace-requested? cmd)))
+             (not (workspace-requested? cmd))
+             (not (and (pair? maybe-allow-workspace?)
+                       (car maybe-allow-workspace?))))
     (let ((manifest (parse-manifest (command-manifest-path cmd))))
       (when (manifest-workspace? manifest)
         (usage-error
@@ -256,6 +276,20 @@
   (filter workspace-member-has-default-install-target?
           (selected-workspace-member-records cmd)))
 
+(define (workspace-root-manifest? cmd)
+  (let ((manifest (parse-manifest (command-manifest-path cmd))))
+    (and (manifest-workspace? manifest) manifest)))
+
+(define (workspace-default-dispatch? spec cmd)
+  (and (command-spec-workspace? spec)
+       (command-spec-package-manifest? spec)
+       (not (command-spec-requires-package? spec))
+       (not (workspace-requested? cmd))
+       (not (command-option cmd "workspace-root" #f))
+       (let ((workspace (workspace-root-manifest? cmd)))
+         (and workspace
+              (not (null? (workspace-default-members workspace)))))))
+
 (define (dispatch-workspace runner name proc workspace? requires-package? install? cmd)
   (unless workspace?
     (usage-error "command does not support workspace selection yet" name))
@@ -287,6 +321,13 @@
        (workspace-install-all-records cmd)
        (selected-workspace-member-records cmd))))
 
+(define (dispatch-workspace-defaults runner cmd)
+  (for-each
+   (lambda (record)
+     (log-info "workspace member" (alist-ref record 'member ""))
+     (run-workspace-member! runner cmd record))
+   (workspace-default-member-records cmd)))
+
 (define (display-version)
   (display "kons ")
   (displayln kons-version))
@@ -310,7 +351,8 @@
   (let* ((name (command-spec-name spec))
          (proc (command-spec-proc spec))
          (argv (autodiscovered-workspace-argv spec cmd))
-         (raw (argument-results-arguments (command-global-results cmd))))
+         (raw (argument-results-arguments (command-global-results cmd)))
+         (use-default-members? (workspace-default-dispatch? spec cmd)))
     (if (not (equal? argv raw))
         (guard (exn
                 ((error-object? exn)
@@ -319,27 +361,32 @@
                  (usage-error "invalid command line" exn)))
           (command-runner-run runner argv))
         (begin
-    (guard-workspace-root-package-command!
-     name
-     (command-spec-package-manifest? spec)
-     cmd)
-    (run-command-job-graph!
-     (command-job-graph
-      (string->symbol name)
-      'command
-      name
-      `((command ,name))
-      (lambda ()
-        (if (workspace-requested? cmd)
-            (dispatch-workspace runner
-                                name
-                                proc
-                                (command-spec-workspace? spec)
-                                (command-spec-requires-package? spec)
-                                (command-spec-install? spec)
-                                cmd)
-            (proc cmd))))
-     cmd)))))
+          (guard-workspace-root-package-command!
+           name
+           (command-spec-package-manifest? spec)
+           cmd
+           use-default-members?)
+          (run-command-job-graph!
+           (command-job-graph
+            (string->symbol name)
+            'command
+            name
+            `((command ,name))
+            (lambda ()
+              (cond
+               ((workspace-requested? cmd)
+                (dispatch-workspace runner
+                                    name
+                                    proc
+                                    (command-spec-workspace? spec)
+                                    (command-spec-requires-package? spec)
+                                    (command-spec-install? spec)
+                                    cmd))
+               (use-default-members?
+                (dispatch-workspace-defaults runner cmd))
+               (else
+                (proc cmd)))))
+           cmd)))))
 
 (define (make-kons-command runner spec . maybe-grammar)
   (let ((grammar (if (null? maybe-grammar)

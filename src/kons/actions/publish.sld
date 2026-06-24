@@ -7,6 +7,7 @@
           (kons util)
           (kons names)
           (kons manifest)
+          (kons features)
           (kons library-discovery)
           (kons registry)
           (kons options))
@@ -131,8 +132,39 @@
                        (json-string (alist-ref dep 'registry #f))
                        "null") ","
    "\"optional\":" (if (alist-ref dep 'optional #f) "true" "false") ","
-   "\"features\":" (symbol-list->json (alist-ref dep 'features '()))
+   "\"features\":" (symbol-list->json (alist-ref dep 'features '())) ","
+   "\"schemes\":" (symbol-list->json (alist-ref dep 'schemes '())) ","
+   "\"dialects\":" (symbol-list->json (alist-ref dep 'dialects '())) ","
+   "\"targets\":" (string-list->json (alist-ref dep 'targets '())) ","
+   "\"profiles\":" (symbol-list->json (alist-ref dep 'profiles '())) ","
+   "\"compileModes\":" (symbol-list->json (alist-ref dep 'compile-modes '()))
    "}"))
+
+(define (registry-dependencies-list-json deps kind)
+  (string-append
+   "["
+   (string-join (map (lambda (dep) (registry-dependency-json dep kind)) deps) ",")
+   "]"))
+
+(define (feature-registry-dependencies feature)
+  (filter publish-registry-dependency?
+          (parse-feature-dependencies feature)))
+
+(define (feature-dependency-json feature)
+  (let ((deps (feature-registry-dependencies feature)))
+    (string-append
+     "{"
+     "\"feature\":" (json-string (symbol->string (car feature))) ","
+     "\"dependencies\":" (registry-dependencies-list-json deps "normal")
+     "}")))
+
+(define (feature-dependencies-json manifest)
+  (string-append
+   "["
+   (string-join
+    (map feature-dependency-json (package-features manifest))
+    ",")
+   "]"))
 
 (define (publish-owner manifest cmd)
   (let ((owner (package-owner manifest)))
@@ -156,7 +188,8 @@
         (string-append command-name " cannot include unversioned path, workspace, or git dependencies")
         (alist-ref dep 'name '()))))
    (append (alist-ref manifest 'dependencies '())
-           (alist-ref manifest 'dev-dependencies '()))))
+           (alist-ref manifest 'dev-dependencies '())
+           (append-map parse-feature-dependencies (package-features manifest)))))
 
 (define (publish-registry-dependency? dep)
   (or (eq? (alist-ref dep 'type #f) 'registry)
@@ -230,7 +263,12 @@
   (capture-first-line
    (string-append "base64 " (shell-quote archive) " | tr -d '\\n'")))
 
-(define (write-publish-json path manifest owner archive-b64)
+(define (publish-libraries-json manifest include-metadata?)
+  (if include-metadata?
+      (libraries-json manifest)
+      "[]"))
+
+(define (write-publish-json path manifest owner archive-b64 include-metadata?)
   (call-with-output-file path
     (lambda (out)
       (display "{" out)
@@ -249,8 +287,9 @@
       (display "\"readme\":" out) (display (json-string (package-readme manifest)) out) (display "," out)
       (display "\"dialects\":" out) (display (symbol-list->json (package-dialects manifest)) out) (display "," out)
       (display "\"features\":" out) (display (string-list->json (feature-names manifest)) out) (display "," out)
+      (display "\"featureDependencies\":" out) (display (feature-dependencies-json manifest) out) (display "," out)
       (display "\"dependencies\":" out) (display (registry-dependencies-json manifest) out) (display "," out)
-      (display "\"libraries\":" out) (display (libraries-json manifest) out) (display "," out)
+      (display "\"libraries\":" out) (display (publish-libraries-json manifest include-metadata?) out) (display "," out)
       (display "\"archiveBase64\":\"" out) (display archive-b64 out) (display "\"" out)
       (display "}" out))))
 
@@ -267,7 +306,12 @@
       (require-publish-metadata manifest "publish"))
     (ensure-git-clean root (command-flag? cmd "allow-dirty"))
     (archive-package root archive (command-flag? cmd "exclude-lockfile"))
-    (write-publish-json json manifest owner (archive-base64 archive))
+    (write-publish-json
+     json
+     manifest
+     owner
+     (archive-base64 archive)
+     (not (command-flag? cmd "no-metadata")))
     (if (command-flag? cmd "dry-run")
         (begin
           (writeln

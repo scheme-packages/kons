@@ -11,4 +11,7 @@
       (make-kons-command
        runner
        (kons-command-spec "status" cmd-status "Print project readiness and next actions." #t #t #t #f #f)
-       (make-command-grammar)))))
+       (make-command-grammar
+        (list 'option "format"
+          'help: "Output format: sexp or json."
+          'value: "FORMAT"))))))

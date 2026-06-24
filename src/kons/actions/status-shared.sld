@@ -18,6 +18,7 @@
           (kons library-discovery)
           (kons features)
           (kons lock)
+          (kons dep registry)
           (kons runner)
           (kons options)
           (kons actions paths)
@@ -27,13 +28,13 @@
 
   (begin
 (define (fetch-plan-form manifest features cmd)
-  (let* ((lock-path (project-lock-path manifest))
+  (let* ((lock-path (command-lock-path manifest cmd))
          (lock (stored-lockfile lock-path))
-         (status (lock-status manifest features cmd lock))
+         (status (best-effort-lock-status manifest features cmd lock))
          (complete (lock-completeness-status manifest features cmd lock))
          (materialized? (and lock
                              (eq? status 'current)
-                             (lock-materialized? lock #t)))
+                             (lock-materialized? lock #t manifest)))
          (locked? (command-flag? cmd "locked"))
          (frozen? (command-flag? cmd "frozen"))
          (offline? (or (command-flag? cmd "offline") frozen?))
@@ -106,14 +107,68 @@
        '())
    (if main-path '() '(add-main-or-bin))))
 
+(define (lock-direct-coverage-complete? manifest features cmd lock)
+  (guard (exn
+          ((error-object? exn) #f))
+    (ensure-lock-covers-direct-dependencies manifest features cmd lock)
+    #t))
+
+(define (fallback-lock-status manifest features cmd lock)
+  (cond
+   ((not lock) 'missing)
+   ((not (lock-root-matches? manifest features cmd lock)) 'stale)
+   ((lock-direct-coverage-complete? manifest features cmd lock) 'current)
+   (else 'stale)))
+
+(define (best-effort-lock-status? cmd)
+  (or (command-flag? cmd "offline")
+      (command-flag? cmd "frozen")))
+
+(define (best-effort-lock-status manifest features cmd lock)
+  (if (best-effort-lock-status? cmd)
+      (fallback-lock-status manifest features cmd lock)
+      (lock-status manifest features cmd lock)))
+
+(define (status-locked-registry-source-fields manifest entry)
+  (let ((vendor-root (vendor-source-root manifest entry)))
+    (if vendor-root
+        `((source vendored)
+          (source-path ,vendor-root))
+        `((source registry)
+          (source-path ,(locked-registry-entry-root entry))))))
+
+(define (status-locked-dependency-form manifest entry)
+  (case (lock-entry-type entry)
+    ((registry)
+     `(dependency
+       (scope ,(lock-entry-ref entry 'scope 'runtime))
+       (type registry)
+       (name ,(lock-entry-ref entry 'name '()))
+       (version ,(lock-entry-ref entry 'version ""))
+       (registry ,(lock-entry-ref entry 'registry "default"))
+       ,@(status-locked-registry-source-fields manifest entry)))
+    (else
+     `(dependency
+       (scope ,(lock-entry-ref entry 'scope 'runtime))
+       (type ,(lock-entry-type entry))
+       (name ,(lock-entry-ref entry 'name '()))))))
+
+(define (status-locked-dependencies-section manifest lock)
+  (if lock
+      `((locked-dependencies
+         ,@(map (lambda (entry)
+                  (status-locked-dependency-form manifest entry))
+                (lock-package-entries lock))))
+      '()))
+
 (define (status-form manifest features cmd)
-  (let* ((lock-path (project-lock-path manifest))
+  (let* ((lock-path (command-lock-path manifest cmd))
          (lock (stored-lockfile lock-path))
-         (status (lock-status manifest features cmd lock))
+         (status (best-effort-lock-status manifest features cmd lock))
          (complete (lock-completeness-status manifest features cmd lock))
          (materialized? (and lock
                              (eq? status 'current)
-                             (lock-materialized? lock #t)))
+                             (lock-materialized? lock #t manifest)))
          (srcs (if (and lock
                         (eq? status 'current)
                         materialized?)
@@ -180,6 +235,7 @@
        (tests ,@(map (lambda (path) path) tests))
        (benches ,@(map (lambda (path) path) benches)))
       (actions ,@(status-action-list status complete materialized? main-path))
+      ,@(status-locked-dependencies-section manifest lock)
       (dependencies
        (runtime ,@(all-dependencies-for manifest #f features cmd))
        (dev ,@(alist-ref manifest 'dev-dependencies '()))))))

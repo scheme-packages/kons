@@ -10,6 +10,8 @@
           (kons commands resolve)
           (kons commands update)
           (kons commands fetch)
+          (kons commands vendor)
+          (kons commands verify)
           (kons commands status)
           (kons commands check)
           (kons commands build)
@@ -20,6 +22,11 @@
           (kons commands install)
           (kons commands doctor)
           (kons commands tree)
+          (kons commands graph)
+          (kons commands license-scan)
+          (kons commands dependency-scan)
+          (kons commands archive-scan)
+          (kons commands compat-scan)
           (kons commands clean)
           (kons commands new)
           (kons commands init)
@@ -35,6 +42,8 @@
        make-resolve-command
        make-update-command
        make-fetch-command
+       make-vendor-command
+       make-verify-command
        make-status-command
        make-check-command
        make-build-command
@@ -45,6 +54,11 @@
        make-install-command
        make-doctor-command
        make-tree-command
+       make-graph-command
+       make-license-scan-command
+       make-dependency-scan-command
+       make-archive-scan-command
+       make-compat-scan-command
        make-clean-command
        make-new-command
        make-init-command
@@ -86,6 +100,7 @@
     (define kons-runner (make-kons-runner))
 
     (define (dispatch raw-argv)
+      (set-message-format-from-argv! raw-argv)
       (let* ((top (guard (exn
                           ((error-object? exn)
                            (usage-error (error-object-message exn)))

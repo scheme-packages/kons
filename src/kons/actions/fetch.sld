@@ -21,7 +21,7 @@
 (define (cmd-fetch cmd)
   (let* ((manifest (parse-manifest (command-manifest-path cmd)))
          (features (active-features manifest cmd))
-         (lock-path (project-lock-path manifest)))
+         (lock-path (command-lock-path manifest cmd)))
     (ensure-supported-active-features manifest features cmd)
     (when (and (command-flag? cmd "frozen")
                (not (command-flag? cmd "plan"))
@@ -47,12 +47,12 @@
                    ((not stored) new-lock)
                    (offline?
                     (unless (lock-root-matches? manifest features cmd stored)
-                      (lockfile-error "kons.lock is stale or belongs to another manifest; run `kons update`"))
+                      (stale-lockfile-error manifest features cmd stored #t))
                     (ensure-lock-covers-direct-dependencies manifest features cmd stored)
                     stored)
                    (locked?
                     (unless (lock-resolution-current? manifest features cmd stored)
-                      (lockfile-error "kons.lock is stale or belongs to another manifest; run `kons update`"))
+                      (stale-lockfile-error manifest features cmd stored #t))
                     stored)
                    ((and stored (lock-resolution-current? manifest features cmd stored)) stored)
                    (else new-lock))))

@@ -10,19 +10,69 @@
           (kons features)
           (kons lock)
           (kons runner)
-          (kons options))
+          (kons options)
+          (kons compat json))
 
   (begin
+(define (json-format? value)
+  (and value (string=? value "json")))
+
+(define (name->json name)
+  (list->vector (map (lambda (part)
+                       (cond
+                        ((symbol? part) (symbol->string part))
+                        ((number? part) (number->string part))
+                        ((string? part) part)
+                        (else "")))
+                     name)))
+
+(define (symbol-list->json items)
+  (list->vector (map symbol->string items)))
+
+(define (resolve-value->json value)
+  (cond
+   ((symbol? value) (symbol->string value))
+   ((or (string? value) (number? value) (boolean? value)) value)
+   ((null? value) '#())
+   ((and (pair? value) (symbol? (car value))) (name->json value))
+   ((pair? value) (list->vector (map resolve-value->json value)))
+   (else #f)))
+
+(define (dependency->json dep)
+  (map (lambda (entry)
+         (cons (car entry) (resolve-value->json (cdr entry))))
+       dep))
+
+(define (dependencies->json deps)
+  (list->vector (map dependency->json deps)))
+
+(define (resolution-form manifest features cmd)
+  `(resolution
+    (root ,(package-name manifest))
+    (features ,@features)
+    (runtime-dependencies ,@(all-dependencies-for manifest #f features cmd))
+    (dev-dependencies ,@(alist-ref manifest 'dev-dependencies '()))
+    (overrides ,@(alist-ref manifest 'overrides '()))))
+
+(define (resolution-json manifest features cmd)
+  `((formatVersion . 1)
+    (root . ,(name->json (package-name manifest)))
+    (features . ,(symbol-list->json features))
+    (runtime-dependencies . ,(dependencies->json (all-dependencies-for manifest #f features cmd)))
+    (dev-dependencies . ,(dependencies->json (alist-ref manifest 'dev-dependencies '())))
+    (overrides . ,(dependencies->json (alist-ref manifest 'overrides '())))))
+
+(define (write-resolution cmd manifest features)
+  (if (json-format? (command-option cmd "format" "sexp"))
+      (begin
+        (json-write (resolution-json manifest features cmd) (current-output-port))
+        (newline))
+      (writeln (resolution-form manifest features cmd))))
+
 (define (cmd-resolve cmd)
   (let* ((manifest (parse-manifest (command-manifest-path cmd)))
          (features (active-features manifest cmd)))
     (ensure-supported-active-features manifest features cmd)
-    (writeln
-     `(resolution
-       (root ,(package-name manifest))
-       (features ,@features)
-       (runtime-dependencies ,@(all-dependencies-for manifest #f features cmd))
-       (dev-dependencies ,@(alist-ref manifest 'dev-dependencies '()))
-       (overrides ,@(alist-ref manifest 'overrides '()))))))
+    (write-resolution cmd manifest features)))
 
   ))

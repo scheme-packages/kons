@@ -340,7 +340,7 @@
 
 
 (define (matching-lock-present? manifest features cmd)
-  (let ((path (project-lock-path manifest)))
+  (let ((path (command-lock-path manifest cmd)))
     (and (file-exists? path)
          (let ((lock (read-lockfile path)))
            (lock-resolution-current? manifest features cmd lock)))))
@@ -361,7 +361,7 @@
       (launcher ,launcher)
       (main ,main)
       (lockfile ,(if (matching-lock-present? manifest features cmd)
-                     (project-lock-path manifest)
+                     (command-lock-path manifest cmd)
                      #f))
       (source-roots ,@src)
       (load-paths ,@src)

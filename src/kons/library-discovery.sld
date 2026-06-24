@@ -13,6 +13,8 @@
           manifest-with-effective-libraries
           library-entry-path
           library-entry-imports
+          import-set-library-name
+          library-entry-import-specs/context
           library-entry-exports
           library-key-entry
           r7rs-library-entry-name
@@ -268,6 +270,11 @@
          (else (loop (cdr sets) out))))
       '()))
 
+(define (import-declaration-specs decl)
+  (if (and (pair? decl) (eq? (car decl) 'import))
+      (cdr decl)
+      '()))
+
 (define (symbol-append a b)
   (string->symbol (string-append (symbol->string a) (symbol->string b))))
 
@@ -310,6 +317,38 @@
 (define (included-declaration-path base file)
   (if (absolute-path? file) file (path-join (dirname base) file)))
 
+(define (ascii-upper-case? ch)
+  (and (char<=? #\A ch) (char<=? ch #\Z)))
+
+(define (ascii-downcase ch)
+  (if (ascii-upper-case? ch)
+      (integer->char
+       (+ (char->integer #\a)
+          (- (char->integer ch) (char->integer #\A))))
+      ch))
+
+(define (ascii-string-downcase value)
+  (list->string (map ascii-downcase (string->list value))))
+
+(define (case-fold-symbol value)
+  (string->symbol (ascii-string-downcase (symbol->string value))))
+
+(define (case-fold-datum value)
+  (cond
+   ((symbol? value) (case-fold-symbol value))
+   ((pair? value)
+    (cons (case-fold-datum (car value))
+          (case-fold-datum (cdr value))))
+   ((vector? value)
+    (list->vector (map case-fold-datum (vector->list value))))
+   (else value)))
+
+(define (read-library-include-exprs path case-fold?)
+  (let ((exprs (read-library-exprs path)))
+    (if case-fold?
+        (map case-fold-datum exprs)
+        exprs)))
+
 (define (library-declaration-imports/context path decls context)
   (let loop ((items decls) (out '()))
     (cond
@@ -344,28 +383,120 @@
           (manifest-error "include-library-declarations entries must be strings" (car items))))))
      ((and (pair? (car items))
            (memq (caar items) '(include include-ci)))
-      (let include-loop ((files (cdar items)) (out out))
-        (cond
-         ((null? files) (loop (cdr items) out))
-         ((string? (car files))
-          (let ((include-path (included-declaration-path path (car files))))
-            (unless (file-exists? include-path)
-              (manifest-error "included library file not found" include-path))
-            (include-loop
-             (cdr files)
-             (append (reverse (library-declaration-imports/context
-                               include-path
-                               (read-library-exprs include-path)
-                               context))
-                     out))))
-         (else
-          (manifest-error "include entries must be strings" (car items))))))
+      (let ((case-fold? (eq? (caar items) 'include-ci)))
+        (let include-loop ((files (cdar items)) (out out))
+          (cond
+           ((null? files) (loop (cdr items) out))
+           ((string? (car files))
+            (let ((include-path (included-declaration-path path (car files))))
+              (unless (file-exists? include-path)
+                (manifest-error "included library file not found" include-path))
+              (include-loop
+               (cdr files)
+               (append (reverse (library-declaration-imports/context
+                                 include-path
+                                 (read-library-include-exprs include-path case-fold?)
+                                 context))
+                       out))))
+           (else
+            (manifest-error "include entries must be strings" (car items)))))))
      (else
       (loop (cdr items)
             (append (reverse (import-declaration-names (car items))) out))))))
 
 (define (library-declaration-imports path decls)
   (library-declaration-imports/context path decls #f))
+
+(define (library-declaration-import-specs/context path decls context)
+  (let loop ((items decls) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((and (pair? (car items))
+           (eq? (caar items) 'cond-expand))
+      (loop (cdr items)
+            (append
+             (reverse
+              (library-declaration-import-specs/context
+               path
+               (selected-cond-expand-declarations (cdar items) context)
+               context))
+             out)))
+     ((and (pair? (car items))
+           (eq? (caar items) 'include-library-declarations))
+      (let include-loop ((files (cdar items)) (out out))
+        (cond
+         ((null? files) (loop (cdr items) out))
+         ((string? (car files))
+          (let ((include-path (included-declaration-path path (car files))))
+            (unless (file-exists? include-path)
+              (manifest-error "included library declarations not found" include-path))
+            (include-loop
+             (cdr files)
+             (append
+              (reverse
+               (library-declaration-import-specs/context
+                include-path
+                (read-library-exprs include-path)
+                context))
+              out))))
+         (else
+          (manifest-error "include-library-declarations entries must be strings" (car items))))))
+     ((and (pair? (car items))
+           (memq (caar items) '(include include-ci)))
+      (let ((case-fold? (eq? (caar items) 'include-ci)))
+        (let include-loop ((files (cdar items)) (out out))
+          (cond
+           ((null? files) (loop (cdr items) out))
+           ((string? (car files))
+            (let ((include-path (included-declaration-path path (car files))))
+              (unless (file-exists? include-path)
+                (manifest-error "included library file not found" include-path))
+              (include-loop
+               (cdr files)
+               (append
+                (reverse
+                 (library-declaration-import-specs/context
+                  include-path
+                  (read-library-include-exprs include-path case-fold?)
+                  context))
+                out))))
+           (else
+            (manifest-error "include entries must be strings" (car items)))))))
+     (else
+      (loop (cdr items)
+            (append (reverse (import-declaration-specs (car items))) out))))))
+
+(define (library-form-import-specs path expr context)
+  (cond
+   ((and (pair? expr)
+         (eq? (car expr) 'define-library))
+    (library-declaration-import-specs/context path (cddr expr) context))
+   ((and (pair? expr)
+         (eq? (car expr) 'library))
+    (library-declaration-import-specs/context path (cddr expr) context))
+   (else '())))
+
+(define (library-source-expr-key expr)
+  (and (pair? expr)
+       (pair? (cdr expr))
+       (cond
+        ((eq? (car expr) 'define-library)
+         (cons 'r7rs (cadr expr)))
+        ((eq? (car expr) 'library)
+         (cons 'r6rs (cadr expr)))
+        (else #f))))
+
+(define (library-entry-import-specs/context source-root entry context)
+  (let ((path (library-entry-path source-root entry)))
+    (if (and path (file-exists? path))
+        (let loop ((exprs (read-library-exprs path)))
+          (cond
+           ((null? exprs) (library-entry-imports entry))
+           ((equal? (library-key entry)
+                    (library-source-expr-key (car exprs)))
+            (library-form-import-specs path (car exprs) context))
+           (else (loop (cdr exprs)))))
+        (library-entry-imports entry))))
 
 (define (library-declaration-exports/context path decls context)
   (let loop ((items decls) (out '()))

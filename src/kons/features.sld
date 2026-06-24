@@ -8,6 +8,7 @@
           default-feature-set
           ensure-supported-active-features
           feature-dependencies
+          command-selected-dialect
           dependency-applies?
           applicable-overrides
           apply-overrides-to-dep
@@ -17,12 +18,22 @@
           (scheme cxr)
           (scheme file)
           (kons util)
+          (kons implementation)
           (kons manifest)
           (kons options)
           (kons dep git)
           (kons dep path))
 
   (begin
+(define-record-type <dependency-selection-context>
+  (make-dependency-selection-context scheme dialect target profile compile-mode)
+  dependency-selection-context?
+  (scheme dependency-selection-context-scheme)
+  (dialect dependency-selection-context-dialect)
+  (target dependency-selection-context-target)
+  (profile dependency-selection-context-profile)
+  (compile-mode dependency-selection-context-compile-mode))
+
 (define (feature-form manifest name)
   (let loop ((features (package-features manifest)))
     (cond
@@ -99,14 +110,51 @@
           (feature-dependencies manifest features)
           (if include-dev? (alist-ref manifest 'dev-dependencies '()) '())))
 
-(define (dependency-applies? dep cmd)
-  (let ((schemes (alist-ref dep 'schemes '()))
-        (targets (alist-ref dep 'targets '()))
-        (scheme (command-selected-scheme cmd))
-        (target (command-option cmd "target" #f)))
-    (and (or (null? schemes) (memq scheme schemes))
-         (or (null? targets)
-             (and target (member target targets))))))
+(define (command-selected-dialect manifest cmd)
+  (let ((mode (implementation-mode-for-dialects
+               (command-selected-scheme cmd)
+               (package-dialects manifest))))
+    (or (and mode (implementation-mode-field mode 'selected-dialect #f))
+        (let ((dialects (package-dialects manifest)))
+          (and (pair? dialects) (car dialects))))))
+
+(define (command-dependency-selection-context manifest cmd)
+  (make-dependency-selection-context
+   (command-selected-scheme cmd)
+   (command-selected-dialect manifest cmd)
+   (command-option cmd "target" #f)
+   (command-selected-profile cmd)
+   (command-selected-compile-mode cmd)))
+
+(define (selector-matches-symbol? selected allowed)
+  (or (null? allowed) (memq selected allowed)))
+
+(define (selector-matches-target? selected allowed)
+  (or (null? allowed)
+      (and selected (member selected allowed))))
+
+(define (dependency-applies-in-context? dep context)
+  (and
+   (selector-matches-symbol?
+    (dependency-selection-context-scheme context)
+    (alist-ref dep 'schemes '()))
+   (selector-matches-symbol?
+    (dependency-selection-context-dialect context)
+    (alist-ref dep 'dialects '()))
+   (selector-matches-target?
+    (dependency-selection-context-target context)
+    (alist-ref dep 'targets '()))
+   (selector-matches-symbol?
+    (dependency-selection-context-profile context)
+    (alist-ref dep 'profiles '()))
+   (selector-matches-symbol?
+    (dependency-selection-context-compile-mode context)
+    (alist-ref dep 'compile-modes '()))))
+
+(define (dependency-applies? dep manifest cmd)
+  (dependency-applies-in-context?
+   dep
+   (command-dependency-selection-context manifest cmd)))
 
 (define (workspace-root-manifest-path cmd)
   (command-option cmd "workspace-root" #f))
@@ -156,7 +204,7 @@
 
 (define (direct-dependencies-for manifest include-dev? features cmd)
   (map (lambda (dep) (resolve-workspace-dependency dep cmd))
-       (filter (lambda (dep) (dependency-applies? dep cmd))
+       (filter (lambda (dep) (dependency-applies? dep manifest cmd))
                (direct-dependencies manifest include-dev? features))))
 
 (define (dependency-key dep)
@@ -310,8 +358,14 @@
   (append
    (let ((schemes (alist-ref dep 'schemes '())))
      (if (null? schemes) '() `((schemes . ,schemes))))
+   (let ((dialects (alist-ref dep 'dialects '())))
+     (if (null? dialects) '() `((dialects . ,dialects))))
    (let ((targets (alist-ref dep 'targets '())))
-     (if (null? targets) '() `((targets . ,targets))))))
+     (if (null? targets) '() `((targets . ,targets))))
+   (let ((profiles (alist-ref dep 'profiles '())))
+     (if (null? profiles) '() `((profiles . ,profiles))))
+   (let ((compile-modes (alist-ref dep 'compile-modes '())))
+     (if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
 
 (define (dependency-name=? a b)
   (and (dependency-name a)
@@ -331,7 +385,7 @@
        (filter
         (lambda (dep)
           (and (memq (alist-ref dep 'type #f) '(path git workspace))
-               (dependency-applies? dep cmd)))
+               (dependency-applies? dep manifest cmd)))
         (alist-ref manifest 'overrides '()))))
 
 (define (apply-overrides-to-dep dep overrides)

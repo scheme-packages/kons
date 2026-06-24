@@ -41,7 +41,7 @@
                 (run-command (string-append "rm -rf " (shell-quote (kons-store-root))))
                 (displayln "cleaned materialized store artifacts"))
                ((command-flag? cmd "gc")
-                (clean-store-gc manifest))
+                (clean-store-gc manifest cmd))
                (else
                 (run-command
                  (string-append "rm -rf "

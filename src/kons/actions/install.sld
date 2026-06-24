@@ -31,6 +31,20 @@
         (safe-store-token (absolute-path source))
         "-planned"))))
 
+(define (copy-installed-source-root source dest)
+  (ui-status "copying dependency sources" dest)
+  (copy-source-root source dest)
+  (ui-status-done "copied dependency sources" dest))
+
+(define (copy-installed-source-roots sources destinations)
+  (cond
+   ((and (null? sources) (null? destinations)) '())
+   ((or (null? sources) (null? destinations))
+    (manifest-error "install source and destination counts do not match"))
+   (else
+    (copy-installed-source-root (car sources) (car destinations))
+    (copy-installed-source-roots (cdr sources) (cdr destinations)))))
+
 (define (cmd-install cmd)
   (let* ((manifest (parse-manifest (install-manifest-path cmd)))
          (features (active-features manifest cmd))
@@ -91,6 +105,7 @@
             (ui-status "copying package sources" installed-root-source)
             (copy-source-root (absolute-path (manifest-source-root manifest)) installed-root-source)
             (ui-status-done "copied package sources" installed-root-source)
+            (copy-installed-source-roots (cdr live-src) installed-deps)
             (when (eq? install-compile-mode 'compiled)
               (let ((local-compiled-root (compiled-output-dir manifest features cmd)))
                 (compile-implementation-libraries manifest features cmd live-src)

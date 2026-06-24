@@ -11,6 +11,9 @@
           internal-error
           warn
           diagnostic-warn
+          set-message-format!
+          set-message-format-from-argv!
+          message-format-json?
           set-log-level!
           log-level
           log-trace
@@ -63,6 +66,7 @@
           (scheme write)
           (scheme process-context)
           (conduit)
+          (kons compat json)
           (kons compat files)
           (kons compat threads)
           (kons ui))
@@ -70,6 +74,7 @@
   (begin
 	(define kons-version 2)
 	(define current-log-level 'info)
+	(define current-message-format 'text)
 	(define temporary-counter 0)
     (define temporary-counter-lock (make-lock))
 
@@ -99,6 +104,35 @@
 
 (define (log-level)
   current-log-level)
+
+(define (set-message-format! format)
+  (set! current-message-format format))
+
+(define (message-format-json?)
+  (eq? current-message-format 'json))
+
+(define (message-format-value->symbol value)
+  (cond
+   ((not value) 'text)
+   ((string=? value "json") 'json)
+   ((string=? value "text") 'text)
+   (else 'text)))
+
+(define (message-format-assignment-value arg)
+  (let ((prefix "--message-format="))
+    (and (> (string-length arg) (string-length prefix))
+         (string=? (substring arg 0 (string-length prefix)) prefix)
+         (substring arg (string-length prefix) (string-length arg)))))
+
+(define (set-message-format-from-argv! argv)
+  (let loop ((items argv))
+    (cond
+     ((null? items) #f)
+     ((message-format-assignment-value (car items))
+      => (lambda (value) (set-message-format! (message-format-value->symbol value))))
+     ((and (string=? (car items) "--message-format") (pair? (cdr items)))
+      (set-message-format! (message-format-value->symbol (cadr items))))
+     (else (loop (cdr items))))))
 
 (define (log-level-rank level)
   (case level
@@ -185,20 +219,126 @@
     ((internal) "INTERNAL")
     (else "ERROR")))
 
-(define (display-diagnostic level category message details)
-  (ui-fresh-line)
-  (display "kons: " (current-error-port))
-  (display (diagnostic-name category) (current-error-port))
-  (display " " (current-error-port))
-  (display level (current-error-port))
-  (display ": " (current-error-port))
-  (display (ui-colorize (diagnostic-color category) message) (current-error-port))
-  (for-each
-   (lambda (detail)
-     (display " " (current-error-port))
-     (pretty-write detail (current-error-port)))
-   details)
+(define (diagnostic-code-detail? detail)
+  (and (pair? detail)
+       (eq? (car detail) 'diagnostic-code)
+       (string? (cdr detail))))
+
+(define (diagnostic-details-without-code details)
+  (filter (lambda (detail) (not (diagnostic-code-detail? detail))) details))
+
+(define (explicit-diagnostic-code details)
+  (let loop ((items details))
+    (cond
+     ((null? items) #f)
+     ((diagnostic-code-detail? (car items)) (cdar items))
+     (else (loop (cdr items))))))
+
+(define (inferred-diagnostic-code category message)
+  (cond
+   ((and (eq? category 'lockfile)
+         (or (string-contains? message "stale")
+             (string-contains? message "would modify kons.lock")))
+    "stale-lockfile")
+   ((and (eq? category 'lockfile)
+         (string-contains? message "missing"))
+    "missing-lockfile")
+   ((and (eq? category 'dependency)
+         (string-contains? message "system Scheme library is not available"))
+    "missing-system-dependency")
+   ((and (eq? category 'dependency)
+         (string-contains? message "locked dependency is not materialized"))
+    "missing-materialization")
+   ((and (eq? category 'dependency)
+         (string-contains? message "checksum mismatch"))
+    "checksum-mismatch")
+   ((and (eq? category 'dependency)
+         (or (string-contains? message "dependency version conflict")
+             (string-contains? message "no matching package version")
+             (string-contains? message "dependency resolution failed")))
+    "resolver-conflict")
+   (else
+    (string-append
+     (case category
+       ((usage) "usage")
+       ((manifest) "manifest")
+       ((lockfile) "lockfile")
+       ((dependency) "dependency")
+       ((internal) "internal")
+       ((warning) "warning")
+       (else "error"))
+     "-error"))))
+
+(define (diagnostic-code category message details)
+  (or (explicit-diagnostic-code details)
+      (inferred-diagnostic-code category message)))
+
+(define (diagnostic-detail->json value)
+  (cond
+   ((symbol? value) (symbol->string value))
+   ((or (string? value) (number? value) (boolean? value)) value)
+   ((null? value) '#())
+   ((diagnostic-alist? value)
+    (map (lambda (entry)
+           (cons (car entry) (diagnostic-detail->json (cdr entry))))
+         value))
+   ((vector? value)
+    (list->vector (map diagnostic-detail->json (vector->list value))))
+   ((pair? value) (list->vector (map diagnostic-detail->json value)))
+   (else (let ((port (open-output-string)))
+           (write value port)
+           (get-output-string port)))))
+
+(define (diagnostic-alist? value)
+  (and (pair? value)
+       (let loop ((items value))
+         (cond
+          ((null? items) #t)
+          ((and (pair? (car items)) (symbol? (caar items)))
+           (loop (cdr items)))
+          (else #f)))))
+
+(define (diagnostic-details->json details)
+  (list->vector (map diagnostic-detail->json details)))
+
+(define (diagnostic-json level category message details)
+  (let ((display-details (diagnostic-details-without-code details)))
+  `((formatVersion . 1)
+    (kind . "diagnostic")
+    (level . ,level)
+    (category . ,(case category
+                   ((warning) "warning")
+                   ((usage) "usage")
+                   ((manifest) "manifest")
+                   ((lockfile) "lockfile")
+                   ((dependency) "dependency")
+                   ((internal) "internal")
+                   (else "error")))
+    (code . ,(diagnostic-code category message details))
+    (message . ,message)
+    (details . ,(diagnostic-details->json display-details)))))
+
+(define (display-diagnostic-json level category message details)
+  (json-write (diagnostic-json level category message details) (current-error-port))
   (newline (current-error-port)))
+
+(define (display-diagnostic level category message details)
+  (if (message-format-json?)
+      (display-diagnostic-json level category message details)
+      (let ((display-details (diagnostic-details-without-code details)))
+        (ui-fresh-line)
+        (display "kons: " (current-error-port))
+        (display (diagnostic-name category) (current-error-port))
+        (display " " (current-error-port))
+        (display level (current-error-port))
+        (display ": " (current-error-port))
+        (display (ui-colorize (diagnostic-color category) message) (current-error-port))
+        (for-each
+         (lambda (detail)
+           (display " " (current-error-port))
+           (pretty-write detail (current-error-port)))
+         display-details)
+        (newline (current-error-port)))))
 
 (define (diagnostic-error category message . details)
   (display-diagnostic "error" category message details)
@@ -358,7 +498,10 @@
   (capture-first-line
    (string-append
     "find " (shell-quote path)
-    " -type f -not -path '*/.git/*' -print | LC_ALL=C sort | xargs cksum | cksum")))
+    " -type f"
+    " -not -path '*/.git/*'"
+    " -not -path '*/.kons/*'"
+    " -print | LC_ALL=C sort | xargs cksum | cksum")))
 
 (define (ascii-alphanumeric? ch)
   (let ((n (char->integer ch)))
