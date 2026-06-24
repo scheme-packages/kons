@@ -105,6 +105,15 @@
     gap: 0.5rem 1rem;
   }
 
+  .library-head,
+  .library-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .library-tags {
+    justify-content: flex-start;
+  }
+
   .secret-banner {
     grid-template-columns: minmax(0, 1fr) auto;
   }

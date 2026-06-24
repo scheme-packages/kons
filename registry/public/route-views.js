@@ -32,6 +32,23 @@ export function routeForTypedResult(item) {
   return packageRoute(item.package || item.name);
 }
 
+export function libraryTags(library) {
+  const tags = [];
+  const seen = new Set();
+  const add = (value) => {
+    const tag = String(value || "").trim();
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) return;
+    seen.add(key);
+    tags.push(tag);
+  };
+
+  add(library?.dialect || library?.kind);
+  add(library?.kind);
+  add(library?.implementation);
+  return tags;
+}
+
 export function libraryPageHtml(data, routeKey) {
   const providers = data?.libraries || [];
   const title = providers[0]?.name || data?.key || routeKey || "library";
@@ -85,7 +102,7 @@ export function identifierPageHtml(data, routeName) {
 }
 
 function libraryProviderHtml(provider) {
-  const tags = [provider.kind, provider.dialect, provider.implementation].filter(Boolean);
+  const tags = libraryTags(provider);
   return `
     <div class="dependency-row">
       <a href="${packageRoute(provider.package)}" data-package-link="${escapeAttr(provider.package)}">${escapeHtml(provider.package)}</a>

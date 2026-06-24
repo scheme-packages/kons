@@ -23,6 +23,7 @@ import {
 } from "./shared.js";
 import {
   identifierPageHtml,
+  libraryTags,
   libraryPageHtml,
   libraryRoute,
   routeForTypedResult,
@@ -741,19 +742,37 @@ function dependentHtml(dep) {
   `;
 }
 
+function libraryMetaHtml(label, values, total) {
+  if (!values.length) return "";
+  const remaining = Math.max(0, total - values.length);
+  return `
+    <div class="library-meta">
+      <span class="library-meta-label">${escapeHtml(label)}</span>
+      <span class="library-token-list">
+        ${values.map((item) => `<code>${escapeHtml(item)}</code>`).join("")}
+        ${remaining ? `<span class="library-more">+${remaining} more</span>` : ""}
+      </span>
+    </div>
+  `;
+}
+
 function libraryHtml(library) {
-  const exports = (library.exports || []).slice(0, 24);
-  const imports = (library.imports || []).slice(0, 8).map((name) => Array.isArray(name) ? `(${name.join(" ")})` : String(name));
-  const tags = [library.kind, library.dialect, library.implementation].filter(Boolean);
+  const exportValues = library.exports || [];
+  const importValues = (library.imports || []).map((name) => Array.isArray(name) ? `(${name.join(" ")})` : String(name));
+  const exports = exportValues.slice(0, 24);
+  const imports = importValues.slice(0, 8);
+  const tags = libraryTags(library);
   return `
     <div class="library-row">
       <div class="library-head">
-        <strong>${escapeHtml(library.name)}</strong>
-        ${tags.map((tag) => chip(tag, "muted")).join("")}
+        <div class="library-title">
+          <strong>${escapeHtml(library.name)}</strong>
+          ${library.path ? `<span class="library-path">${escapeHtml(library.path)}</span>` : ""}
+        </div>
+        <div class="library-tags">${tags.map((tag) => chip(tag, "muted")).join("")}</div>
       </div>
-      <div class="library-path">${escapeHtml(library.path || "")}</div>
-      ${exports.length ? `<div class="library-meta"><span>exports</span>${exports.map((item) => `<code>${escapeHtml(item)}</code>`).join("")}</div>` : ""}
-      ${imports.length ? `<div class="library-meta"><span>imports</span>${imports.map((item) => `<code>${escapeHtml(item)}</code>`).join("")}</div>` : ""}
+      ${libraryMetaHtml("exports", exports, exportValues.length)}
+      ${libraryMetaHtml("imports", imports, importValues.length)}
     </div>
   `;
 }

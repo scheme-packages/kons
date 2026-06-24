@@ -34,7 +34,7 @@
   --shadow-md: none;
   --shadow-lg: none;
 
-  --container: 900px;
+  --container: 1040px;
   --topbar-h: 48px;
 
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -491,9 +491,9 @@ h4 {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.08rem 0.35rem;
+  padding: 0.1rem 0.42rem;
   border-radius: var(--r-sm);
-  background: transparent;
+  background: var(--surface);
   border: 1px solid var(--line);
   color: var(--text-2);
   font-size: 0.78rem;
@@ -508,31 +508,31 @@ h4 {
 }
 
 .chip-accent {
-  background: transparent;
+  background: var(--accent-soft);
   border-color: var(--accent-strong);
   color: var(--accent-strong);
 }
 
 .chip-success {
-  background: transparent;
+  background: var(--success-soft);
   border-color: var(--success);
   color: var(--success);
 }
 
 .chip-danger {
-  background: transparent;
+  background: var(--danger-soft);
   border-color: var(--danger);
   color: var(--danger);
 }
 
 .chip-warning {
-  background: transparent;
+  background: var(--warning-soft);
   border-color: var(--warning);
   color: var(--warning);
 }
 
 .chip-muted {
-  background: transparent;
+  background: var(--surface);
   border-color: var(--line);
   color: var(--muted);
 }
@@ -619,7 +619,7 @@ input[type="file"]::file-selector-button:hover {
 
 /* Card */
 .card {
-  background: transparent;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: none;
@@ -653,4 +653,3 @@ input[type="file"]::file-selector-button:hover {
 .card-body.tight {
   padding: 0.75rem 1.25rem;
 }
-

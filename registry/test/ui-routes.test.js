@@ -12,6 +12,7 @@ import {
 } from "./helpers.js";
 import {
   identifierPageHtml,
+  libraryTags,
   libraryPageHtml,
   packageRoute,
   routeForTypedResult,
@@ -117,4 +118,28 @@ test("package page exposes signature and checksum details", async () => {
   assert.match(source, /version-meta/);
   assert.match(source, /checksumHtml\(checksum\)/);
   assert.match(source, /version\.publishedBy\?\.username/);
+});
+
+test("library UI tags do not repeat kind and dialect", () => {
+  assert.deepEqual(libraryTags({
+    kind: "r6rs",
+    dialect: "r6rs",
+    implementation: "ironscheme",
+  }), ["r6rs", "ironscheme"]);
+
+  const html = libraryPageHtml({
+    key: "conduit/implementation/ironscheme",
+    libraries: [{
+      type: "library",
+      name: "(conduit implementation ironscheme)",
+      key: "conduit/implementation/ironscheme",
+      kind: "r6rs",
+      dialect: "r6rs",
+      implementation: "ironscheme",
+      package: "conduit",
+      version: "1.0.0",
+    }],
+  }, "conduit/implementation/ironscheme");
+  assert.doesNotMatch(html, /r6rs\s*·\s*r6rs/);
+  assert.match(html, /r6rs\s*·\s*ironscheme/);
 });
