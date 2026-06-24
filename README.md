@@ -43,6 +43,7 @@ kons run             # run the main program
 kons test            # run tests
 kons check           # check manifest and dependencies
 kons build           # build only
+kons verify          # verify lockfile and materialized sources
 kons build --jobs 4  # run work in parallel when the Scheme supports threads
 kons repl            # open a Scheme REPL with project load paths
 kons install         # install a launcher for the project
@@ -68,6 +69,23 @@ Target package runtimes also include `chez`/`chezscheme`, `sagittarius`/`sash`,
 `stklos`, `kawa`, `loko`, `skint`, `cyclone`, `mit`, `mosh`, and `ironscheme`
 when the package dialect matches the implementation.
 
+## Portability model
+
+`kons` can translate straightforward R7RS `define-library` files into generated
+R6RS `.sls` files when an R7RS package is run with an R6RS-only implementation.
+The translator handles common library declarations, `include`,
+`include-library-declarations`, `include-ci`, `cond-expand`, simple renamed
+exports, and import modifiers (`only`, `except`, `prefix`, `rename`) when the
+inner import maps to one R6RS import. It maps common standard `(scheme ...)`
+imports such as `base`, `char`, `write`, `read`, `file`, `process-context`,
+`cxr`, `complex`, `case-lambda`, `eval`, `inexact`, `r5rs`, and restricted
+`(only (scheme lazy) delay force)` to specific R6RS/RNRS libraries. Full
+`(scheme lazy)`, `(scheme time)`, `(scheme load)`, and `(scheme repl)` are
+reported as unsupported until there is a portable R6RS target for them. Use
+`kons check` or `kons --scheme NAME compat-scan` to see translated files and
+forms that still need a dependency, a different implementation, or a package
+variant.
+
 ## Add dependencies
 
 ```sh
@@ -78,6 +96,10 @@ kons add scheme/base --system
 kons remove local/lib
 kons update
 kons fetch
+kons vendor
+kons dependency-scan
+kons archive-scan
+kons --scheme chez compat-scan
 ```
 
 Registry packages use `https://kons.playxe.org` by default. To use another
@@ -87,6 +109,13 @@ registry, configure it like this:
 kons registry add default https://packages.example.org --default
 kons registry index https://packages.example.org/index/config.json default --default
 ```
+
+If a registry signs metadata, pin its public key in
+`$KONS_HOME/config/registries.scm` and set `(trust required)`, or run
+`kons registry index URL NAME --trust` to pin the key advertised by the index
+config. During key rotation, use `(keys (key ...))` to trust both the old and
+new public keys until old metadata caches and lockfiles no longer need offline
+verification.
 
 ## Publish
 

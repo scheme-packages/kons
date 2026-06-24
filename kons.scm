@@ -4,7 +4,13 @@
   (license "MIT")
   (description "Scheme package manager and build system")
   (dialects r7rs)
-  (source-path "src"))
+  (source-path "src")
+  (tests
+    "tests/implementation.scm"
+    "tests/jobs.scm"
+    "tests/lock.scm"
+    "tests/library-discovery.scm"
+    "tests/resolver.scm"))
 
 (dependencies
   (registry
@@ -16,4 +22,10 @@
 
 (dev-dependencies)
 
-(overrides)
+(overrides
+  (path
+    (name (args))
+    (path "vendor/scm-args"))
+  (path
+    (name (conduit))
+    (path "vendor/conduit")))

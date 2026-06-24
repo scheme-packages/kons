@@ -38,6 +38,21 @@ Target package runtimes also include `chez`/`chezscheme`, `sagittarius`/`sash`,
 `stklos`, `kawa`, `loko`, `skint`, `cyclone`, `mit`, `mosh`, and `ironscheme`
 when the package dialect matches the implementation.
 
+Kons can translate straightforward R7RS `define-library` files into generated
+R6RS `.sls` files when an R7RS package is run with an R6RS-only implementation.
+The translator is conservative: it handles common declarations, `include`,
+`include-library-declarations`, `include-ci`, `cond-expand`, simple renamed
+exports, and import modifiers (`only`, `except`, `prefix`, `rename`) when the
+inner import maps to one R6RS import. Supported standard imports include
+`(scheme base)`, `(scheme char)`, `(scheme write)`, `(scheme read)`,
+`(scheme file)`, `(scheme process-context)`, `(scheme cxr)`, `(scheme complex)`,
+`(scheme case-lambda)`, `(scheme eval)`, `(scheme inexact)`, `(scheme r5rs)`,
+and restricted `(only (scheme lazy) delay force)`. Full `(scheme lazy)`,
+`(scheme time)`, `(scheme load)`, and `(scheme repl)` are intentionally reported
+as unsupported until there is a portable R6RS target. `kons check` and
+`kons --scheme NAME compat-scan` report standard imports that still need a
+dependency, compatible implementation, or package variant.
+
 ## Create a project
 
 ```sh
@@ -73,6 +88,7 @@ kons test --list     # show test files
 kons bench           # run benches
 kons check           # check manifest and deps
 kons build           # build only
+kons verify          # verify lockfile and materialized sources
 kons build --release # release build
 ```
 
@@ -96,6 +112,41 @@ registry, configure it like this:
 ```sh
 kons registry add default https://packages.example.org --default
 kons registry index https://packages.example.org/index/config.json default --default
+```
+
+For registries that sign metadata, pin the public key and require trust in
+`$KONS_HOME/config/registries.scm`:
+
+```sh
+kons registry index https://packages.example.org/index/config.json default --default --trust
+```
+
+Or configure the key manually:
+
+```scheme
+(registries
+  (registry
+    (name "default")
+    (url "https://packages.example.org")
+    (default #t)
+    (trust required)
+    (key-id "2026-06-main")
+    (key-file "keys/2026-06-main.pem")))
+```
+
+During signing-key rotation, keep both public keys trusted until old metadata
+caches and old lockfiles no longer need offline verification:
+
+```scheme
+(registries
+  (registry
+    (name "default")
+    (url "https://packages.example.org")
+    (default #t)
+    (trust required)
+    (keys
+      (key (id "2026-06-main") (file "keys/2026-06-main.pem"))
+      (key (id "2026-09-main") (file "keys/2026-09-main.pem")))))
 ```
 
 Local package:
@@ -124,6 +175,7 @@ kons update           # resolve deps and write kons.lock
 kons update --upgrade # update compatible registry deps too
 kons fetch            # download missing deps
 kons fetch --plan     # show what will happen
+kons vendor           # copy locked registry deps into vendor/kons
 ```
 
 Use `--dev` for dev dependencies:
@@ -168,6 +220,36 @@ resolved registry package and the dependency edges between them. A plain
 `kons update` preserves locked registry versions that still satisfy the manifest
 and transitive constraints; use `kons update --upgrade` to select newer
 compatible versions. Use these flags in CI when you want repeatable builds.
+The lock root also records the selected scheme, target, profile, compile mode,
+and features. Running with a different explicit context requires `kons update`.
+
+Vendor locked registry dependencies for offline builds:
+
+```sh
+kons vendor
+kons vendor --directory third_party/kons
+kons vendor --sync
+kons vendor --plan
+```
+
+This writes the locked registry package sources, a vendor metadata file, and a
+root `kons-vendor.scm` source-replacement pointer. Locked registry dependencies
+are loaded from the vendor tree before the global registry store, so the vendor
+directory and pointer can be checked into a repository for frozen/offline builds.
+
+You can also configure source replacement outside the project pointer. Put this
+in `$KONS_HOME/config/source-replacements.scm` to map a registry alias to a
+vendor metadata file or directory:
+
+```scheme
+(source-replacements
+  (replace
+    (registry "default")
+    (directory "/path/to/vendor/kons")))
+```
+
+When `directory` is used, Kons reads `kons-vendor.scm` from that directory. Use
+`metadata` instead to point at a specific metadata file.
 
 ## Registry commands
 
@@ -176,6 +258,7 @@ kons registry list
 kons registry add NAME URL
 kons registry add NAME URL --default
 kons registry index INDEX-URL NAME
+kons registry index INDEX-URL NAME --trust
 kons registry remove NAME
 kons registry default NAME
 ```
@@ -185,14 +268,38 @@ Search and inspect packages:
 ```sh
 kons search parser --limit 10
 kons search parser --type all
+kons search parser --format json
 kons provides example/base
+kons provides example/base --format json
 kons identifier parse-token
+kons identifier parse-token --format json
 kons info example/base
+kons info example/base --format json
 kons tree
+kons tree --format json
+kons graph --format dot
+kons graph --format json
+kons dependency-scan
+kons dependency-scan --format json
+kons archive-scan --format json
+kons archive-scan --archive .kons/package/example-lib-0.1.0.kons --format json
+kons --scheme chez compat-scan
+kons --scheme chez compat-scan --format json
+kons license-scan --format json
+kons license-scan --directory notices
 kons resolve
+kons resolve --format json
 kons metadata
+kons metadata --format json
 kons status
+kons status --format json
 kons doctor
+```
+
+Machine-readable diagnostics:
+
+```sh
+kons update --locked --message-format json
 ```
 
 ## Login and publish
@@ -260,6 +367,21 @@ Declare features in `kons.scm`:
     (default tls)
     (tls)
     (debug)))
+```
+
+A feature can add dependencies or forward features to an existing dependency:
+
+```scheme
+(dependencies
+  (registry (name (example http)) (version "^1.0")))
+
+(package
+  (features
+    (tls
+      (dependencies
+        (registry (name (example http))
+                  (version "^1.0")
+                  (features tls)))))))
 ```
 
 Use them from commands:
@@ -409,6 +531,11 @@ Use `(dialects r6rs)` and `.sps` / `.sls` files:
   (main "main.sps"))
 ```
 
+R7RS packages can also run on R6RS-only implementations through generated
+`.sls` translations when their libraries use the supported portable subset. Run
+`kons check --plan` or `kons --scheme NAME compat-scan` to see which files will
+be translated and which imports or forms remain unsupported.
+
 Run it:
 
 ```sh
@@ -444,6 +571,8 @@ thread support. Capy, Gauche, and Guile can do parallel jobs today.
 | `remove` | Remove dependency from `kons.scm`. |
 | `update` | Resolve dependencies and write `kons.lock`. |
 | `fetch` | Download dependencies. |
+| `verify` | Verify the lockfile, materialized sources, and cached archives. |
+| `vendor` | Copy locked registry dependencies into a vendor directory. |
 | `run` | Run main program, script, or bin. |
 | `repl` | Start Scheme REPL with project paths. |
 | `check` | Check manifest and dependency setup. |
@@ -453,6 +582,11 @@ thread support. Capy, Gauche, and Guile can do parallel jobs today.
 | `install` | Install local launcher. |
 | `clean` | Remove generated build/store files. |
 | `tree` | Show dependency tree. |
+| `graph` | Print dependency graph data or DOT. |
+| `dependency-scan` | Scan source imports against local libraries. |
+| `archive-scan` | Inspect package archive metadata. |
+| `compat-scan` | Report likely Scheme portability gaps. |
+| `license-scan` | Report package licenses and notices. |
 | `resolve` | Show resolved dependency graph. |
 | `metadata` | Print normalized manifest data. |
 | `status` | Show project readiness. |

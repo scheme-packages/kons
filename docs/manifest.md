@@ -30,17 +30,17 @@ Common fields:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Package name, written like `(example hello)`. |
+| `name` | Package name, written like `(example hello)`. Registry packages cannot use reserved route roots like `api`, `auth`, or `index`. |
 | `version` | Package version. Use SemVer when publishing. |
 | `owner` | Package owner name for publishing. |
-| `license` | License text or SPDX name, like `"MIT"`. |
+| `license` | SPDX license expression, like `"MIT"` or `"MIT OR Apache-2.0"`. |
 | `description` | Short text shown in registry. |
 | `keywords` | Search words for registry, like `"parser"` or `"web"`. |
 | `readme` | README file path included in published registry pages, usually `"README.md"`. |
 | `site` | Project website URL. Alias for `homepage`. |
 | `repo` | Source repository URL. Alias for `repository`. |
 | `docs` | Documentation URL. Alias for `documentation`. |
-| `dialects` | `r7rs`, `r6rs`, or both if your code supports it. |
+| `dialects` | `r7rs`, `r6rs`, or both if your code supports it. R7RS-only packages can be translated to generated R6RS `.sls` files for R6RS-only runtimes when they use the supported portable subset described in [Usage](usage.md); `kons check` and `compat-scan` report unsupported imports/forms such as `(scheme time)`, `(scheme load)`, and `(scheme repl)`. |
 | `source-path` | Folder with source files. Usually `"src"`. |
 | `main` | Main file for `kons run`. |
 | `tests` | Test files for `kons test`. |
@@ -136,6 +136,37 @@ Dependency kinds:
 | `workspace` | Package is another member of same workspace. |
 | `system` | Library is provided by the Scheme implementation. |
 
+Dependencies can be limited to specific build contexts:
+
+```scheme
+(dependencies
+  (registry
+    (name (example guile-lib))
+    (version "^1.0")
+    (schemes guile))
+  (path
+    (name (example release-helper))
+    (path "../release-helper")
+    (version "1.0.0")
+    (profiles release))
+  (path
+    (name (example compiled-helper))
+    (path "../compiled-helper")
+    (version "1.0.0")
+    (compile-modes compiled))
+  (path
+    (name (example r7rs-helper))
+    (path "../r7rs-helper")
+    (version "1.0.0")
+    (dialects r7rs)))
+```
+
+Supported selectors are `schemes`, `implementations`, `dialects`, `targets`,
+`profiles`, and `compile-modes`. Selectors are stored in the lockfile, and
+explicit changes to `--scheme`, `--target`, `--profile`, or `--compile-mode`,
+as well as changes to the selected package dialect, require a matching lock
+update.
+
 ## Dependency commands
 
 You can edit `kons.scm` with commands instead of typing by hand:
@@ -177,6 +208,29 @@ registry version too:
 Locally, kons still uses workspace/path/git source. During publish, kons writes
 these as registry requirements. If the version is missing, publish fails.
 
+Workspace roots can provide defaults for member metadata and dependency publish
+versions:
+
+```scheme
+(workspace
+  (members "packages/base" "apps/cli")
+  (default-members "apps/cli")
+  (package
+    (license "MIT")
+    (repository "https://example.org/project.git")
+    (authors "Example Team"))
+  (dependencies
+    (workspace (name (example base)) (version "1.0.0"))))
+```
+
+Members inherit empty `license`, `repository`, `homepage`, `documentation`, and
+`authors` fields. Dependencies inherit a workspace dependency `version` when the
+member dependency does not declare one.
+
+`default-members` lists workspace members used by package commands run at the
+workspace root without `--workspace` or `--package`. Use `--workspace` to run all
+members, or `--package MEMBER` to select one explicitly.
+
 ## Overrides
 
 Overrides replace a dependency without changing the original dependency list.
@@ -214,6 +268,24 @@ Features are optional switches for your package:
     (tls)
     (debug)))
 ```
+
+Features can also add dependencies or request features on a dependency:
+
+```scheme
+(dependencies
+  (registry (name (example http)) (version "^1.0")))
+
+(package
+  (features
+    (tls
+      (dependencies
+        (registry (name (example http))
+                  (version "^1.0")
+                  (features tls)))))))
+```
+
+When `tls` is active, the resolver keeps the normal `example/http` dependency
+and also requests its `tls` feature.
 
 Use them:
 

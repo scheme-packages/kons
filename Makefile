@@ -35,8 +35,22 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/jobs.scm
 	$(RUN_TEST) tests/implementation.scm
 	$(RUN_TEST) tests/library-discovery.scm
+	$(RUN_TEST) tests/metadata.scm
+	$(RUN_TEST) tests/translation.scm
+	$(RUN_TEST) tests/diagnostics.scm
 	$(RUN_TEST) tests/lock.scm
+	$(RUN_TEST) tests/features.scm
+	$(RUN_TEST) tests/dev-dependencies.scm
+	$(RUN_TEST) tests/publish.scm
+	$(RUN_TEST) tests/source-replacement.scm
+	$(RUN_TEST) tests/workspace.scm
 	$(RUN_TEST) tests/resolver.scm
+	$(RUN_TEST) tests/graph.scm
+	$(RUN_TEST) tests/json-output.scm
+	$(RUN_TEST) tests/dependency-scan.scm
+	$(RUN_TEST) tests/archive-scan.scm
+	$(RUN_TEST) tests/license-scan.scm
+	$(RUN_TEST) tests/compat-scan.scm
 
 ci-unit: unit-tests
 
@@ -102,7 +116,37 @@ check-required:
 
 self-verify:
 	git submodule update --init --recursive $(VENDOR_SUBMODULES)
-	$(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- metadata >/tmp/kons-self-capy.out
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- metadata >/tmp/kons-self-capy.out
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- metadata --format json >/tmp/kons-self-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-capy.json","utf8")); if (data.formatVersion !== 1 || !data.package || !Array.isArray(data.package.name)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- tree --offline --format json >/tmp/kons-self-tree-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-tree-capy.json","utf8")); if (data.formatVersion !== 1 || !data.root || !Array.isArray(data.root.name) || !Array.isArray(data.dependencies)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- graph --offline --format dot >/tmp/kons-self-graph-capy.dot
+	node -e 'const fs=require("fs"); const data=fs.readFileSync("/tmp/kons-self-graph-capy.dot","utf8"); if (!/^digraph kons_dependencies \{/.test(data) || !data.includes("\"root\"")) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- graph --offline --format json >/tmp/kons-self-graph-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-graph-capy.json","utf8")); if (data.formatVersion !== 1 || !data.root || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- license-scan --offline --format json --directory /tmp/kons-self-notices >/tmp/kons-self-license-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-license-capy.json","utf8")); if (data.formatVersion !== 1 || !Array.isArray(data.packages) || !fs.existsSync("/tmp/kons-self-notices/THIRD_PARTY_NOTICES.txt")) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- dependency-scan --format json >/tmp/kons-self-dependency-scan-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-dependency-scan-capy.json","utf8")); if (data.formatVersion !== 1 || !Array.isArray(data.libraries) || !Array.isArray(data.missing)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- archive-scan --format json >/tmp/kons-self-archive-scan-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-archive-scan-capy.json","utf8")); if (data.formatVersion !== 1 || !Array.isArray(data.libraries) || !Array.isArray(data.identifiers)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --scheme guile compat-scan --format json >/tmp/kons-self-compat-scan-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-compat-scan-capy.json","utf8")); if (data.formatVersion !== 1 || !Array.isArray(data.diagnostics)) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- resolve --format json >/tmp/kons-self-resolve-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-resolve-capy.json","utf8")); if (data.formatVersion !== 1 || !Array.isArray(data.root) || !Array.isArray(data["runtime-dependencies"])) process.exit(1)'
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --manifest vendor/scm-args/kons.scm status --offline --format json >/tmp/kons-self-status-capy.json
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-status-capy.json","utf8")); if (data.formatVersion !== 1 || !data.root || !data.lockfile || !Array.isArray(data.actions)) process.exit(1)'
+	@if XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --manifest vendor/scm-args/kons.scm --message-format json update --locked >/tmp/kons-self-message-format.out 2>/tmp/kons-self-message-format.err; then echo "expected structured diagnostic command to fail"; exit 1; fi
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-message-format.err","utf8")); if (data.kind !== "diagnostic" || data.code !== "stale-lockfile" || data.category !== "lockfile") process.exit(1)'
+	rm -rf /tmp/kons-self-lock-context
+	mkdir -p /tmp/kons-self-lock-context/src/example
+	printf '%s\n' '(package' '  (name (example lock-context))' '  (version "0.1.0")' '  (source-path "src"))' '' '(dependencies)' '(dev-dependencies)' >/tmp/kons-self-lock-context/kons.scm
+	printf '%s\n' '(define-library (example lock-context) (export value) (import (scheme base)) (begin (define value 1)))' >/tmp/kons-self-lock-context/src/example/lock-context.sld
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --manifest /tmp/kons-self-lock-context/kons.scm --scheme capy update >/tmp/kons-self-lock-context-update.out
+	XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --manifest /tmp/kons-self-lock-context/kons.scm --scheme capy verify >/tmp/kons-self-lock-context-verify.out
+	@if XDG_CACHE_HOME=$(KONS_TEST_CACHE_HOME) $(CAPY) -L $(VENDOR_SRCDIRS),src -s src/kons/main.scm -- --manifest /tmp/kons-self-lock-context/kons.scm --scheme guile --message-format json tree --locked >/tmp/kons-self-lock-context-tree.out 2>/tmp/kons-self-lock-context-tree.err; then echo "expected scheme-mismatched lock to fail"; exit 1; fi
+	node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/kons-self-lock-context-tree.err","utf8")); if (data.code !== "stale-lockfile") process.exit(1)'
 	@if command -v $(GUILE) >/dev/null 2>&1; then SCHEME=guile ./bin/kons metadata >/tmp/kons-self-scheme-guile.out; else echo "skip manager SCHEME fallback Guile: $(GUILE) not found"; fi
 	@if command -v $(GAUCHE) >/dev/null 2>&1; then $(GAUCHE) -r7 -I $(ARGS_SRCDIR) -I $(CONDUIT_SRCDIR) -I src src/kons/main.scm metadata >/tmp/kons-self-gauche.out; else echo "skip manager Gauche: $(GAUCHE) not found"; fi
 	@if command -v $(GUILE) >/dev/null 2>&1; then GUILE_AUTO_COMPILE=0 $(GUILE) --r7rs -L $(ARGS_SRCDIR) -L $(CONDUIT_SRCDIR) -L src src/kons/main.scm metadata >/tmp/kons-self-guile.out; else echo "skip manager Guile: $(GUILE) not found"; fi
