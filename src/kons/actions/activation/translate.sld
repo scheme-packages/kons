@@ -332,7 +332,7 @@
       (append
        out
        (list
-        (unsupported-translation
+        (make-unsupported-translation-form
          source
          "include-library-declarations entries must be strings"
          declaration)))))))
@@ -349,7 +349,7 @@
                   (append
                    out
                    (list
-                    (unsupported-translation
+                    (make-unsupported-translation-form
                      source
                      "included body source not found"
                      declaration)))))))
@@ -357,7 +357,7 @@
       (append
        out
        (list
-        (unsupported-translation
+        (make-unsupported-translation-form
          source
          "include entries must be strings"
          declaration)))))))
@@ -371,7 +371,7 @@
 (define (analyze-import-declaration source declaration)
   (map
    (lambda (spec)
-     (unsupported-translation
+     (make-unsupported-translation-form
       source
       "R7RS import set has no R6RS translation mapping"
       spec))
@@ -380,7 +380,7 @@
 (define (analyze-export-declaration source declaration)
   (map
    (lambda (spec)
-     (unsupported-translation
+     (make-unsupported-translation-form
       source
       "unsupported R7RS export spec for R6RS translation"
       spec))
@@ -404,7 +404,7 @@
     (analyze-cond-expand source declaration context))
    (else
     (list
-     (unsupported-translation
+     (make-unsupported-translation-form
       source
       "unsupported R7RS library declaration for R6RS translation"
       declaration)))))
@@ -541,7 +541,7 @@
   (let loop ((items entries))
     (cond
      ((null? items) #f)
-     ((same-library-name? name (cadr (car items))) #t)
+      ((equal? name (cadr (car items))) #t)
      (else (loop (cdr items))))))
 
 (define (translation-library-available? manifest name)
