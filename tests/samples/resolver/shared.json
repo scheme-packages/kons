@@ -1,0 +1,245 @@
+{
+  "candidates": [
+    {
+      "name": "sample/a",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/b",
+      "version": "1.0.0",
+      "dependencies": [
+        {
+          "name": "sample/a",
+          "req": "^1.0.0"
+        }
+      ]
+    },
+    {
+      "name": "sample/c",
+      "version": "1.0.0",
+      "dependencies": [
+        {
+          "name": "sample/b",
+          "req": "^1.0.0"
+        }
+      ]
+    },
+    {
+      "name": "sample/feature-leaf",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/feature-lib",
+      "version": "1.0.0",
+      "features": ["feature-leaf"],
+      "dependencies": [
+        {
+          "name": "sample/feature-leaf",
+          "req": "^1.0.0",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "sample/forward-leaf",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/forward-lib",
+      "version": "1.0.0",
+      "features": ["tls"],
+      "featureDependencies": [
+        {
+          "feature": "tls",
+          "dependencies": [
+            {
+              "name": "sample/forward-leaf",
+              "req": "^1.0.0",
+              "features": ["tls"]
+            }
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "name": "sample/forward-leaf",
+          "req": "^1.0.0"
+        }
+      ]
+    },
+    {
+      "name": "sample/selector-linux",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/selector-release",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/selector-guile",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sample/selector-root",
+      "version": "1.0.0",
+      "dependencies": [
+        {
+          "name": "sample/selector-linux",
+          "req": "^1.0.0",
+          "targets": ["linux-x86_64"]
+        },
+        {
+          "name": "sample/selector-release",
+          "req": "^1.0.0",
+          "dialects": ["r7rs"],
+          "profiles": ["release"],
+          "compileModes": ["compiled"]
+        },
+        {
+          "name": "sample/selector-guile",
+          "req": "^1.0.0",
+          "schemes": ["guile"]
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "shared transitive chain",
+      "requirements": [
+        {
+          "name": "sample/c",
+          "req": "^1.0.0"
+        }
+      ],
+      "selectedPackages": ["sample/a", "sample/b", "sample/c"],
+      "schemePackages": ["sample/c", "sample/b", "sample/a"],
+      "schemeEdges": ["sample/c", "sample/b", "sample/a"],
+      "registryPackages": ["sample/a", "sample/b", "sample/c"],
+      "registryEdges": ["sample/c", "sample/b", "sample/a"]
+    },
+    {
+      "name": "shared optional feature disabled",
+      "requirements": [
+        {
+          "name": "sample/feature-lib",
+          "req": "^1.0.0"
+        }
+      ],
+      "selectedPackages": ["sample/feature-lib"],
+      "schemePackages": ["sample/feature-lib"],
+      "schemeEdges": ["sample/feature-lib"],
+      "registryPackages": ["sample/feature-lib"],
+      "registryEdges": ["sample/feature-lib"]
+    },
+    {
+      "name": "shared optional feature enabled",
+      "requirements": [
+        {
+          "name": "sample/feature-lib",
+          "req": "^1.0.0",
+          "features": ["feature-leaf"]
+        }
+      ],
+      "selectedPackages": ["sample/feature-leaf", "sample/feature-lib"],
+      "schemePackages": ["sample/feature-lib", "sample/feature-leaf"],
+      "schemeEdges": ["sample/feature-lib", "sample/feature-leaf"],
+      "registryPackages": ["sample/feature-leaf", "sample/feature-lib"],
+      "registryEdges": ["sample/feature-lib", "sample/feature-leaf"]
+    },
+    {
+      "name": "shared forwarded feature enabled",
+      "requirements": [
+        {
+          "name": "sample/forward-lib",
+          "req": "^1.0.0",
+          "features": ["tls"]
+        }
+      ],
+      "selectedPackages": ["sample/forward-leaf", "sample/forward-lib"],
+      "schemePackages": ["sample/forward-lib", "sample/forward-leaf"],
+      "schemeEdges": ["sample/forward-lib", "sample/forward-leaf", "sample/forward-leaf"],
+      "registryPackages": ["sample/forward-leaf", "sample/forward-lib"],
+      "registryEdges": ["sample/forward-lib", "sample/forward-leaf", "sample/forward-leaf"]
+    },
+    {
+      "name": "shared selector context unfiltered",
+      "requirements": [
+        {
+          "name": "sample/selector-root",
+          "req": "^1.0.0"
+        }
+      ],
+      "selectedPackages": [
+        "sample/selector-guile",
+        "sample/selector-linux",
+        "sample/selector-release",
+        "sample/selector-root"
+      ],
+      "schemePackages": [
+        "sample/selector-root",
+        "sample/selector-linux",
+        "sample/selector-release",
+        "sample/selector-guile"
+      ],
+      "schemeEdges": [
+        "sample/selector-root",
+        "sample/selector-linux",
+        "sample/selector-release",
+        "sample/selector-guile"
+      ],
+      "registryPackages": [
+        "sample/selector-guile",
+        "sample/selector-linux",
+        "sample/selector-release",
+        "sample/selector-root"
+      ],
+      "registryEdges": [
+        "sample/selector-root",
+        "sample/selector-guile",
+        "sample/selector-linux",
+        "sample/selector-release"
+      ],
+      "contextExpectations": [
+        {
+          "name": "release capy linux r7rs compiled",
+          "context": {
+            "scheme": "capy",
+            "dialect": "r7rs",
+            "target": "linux-x86_64",
+            "profile": "release",
+            "compileMode": "compiled"
+          },
+          "registryPackages": [
+            "sample/selector-linux",
+            "sample/selector-release",
+            "sample/selector-root"
+          ],
+          "registryEdges": [
+            "sample/selector-root",
+            "sample/selector-linux",
+            "sample/selector-release"
+          ]
+        },
+        {
+          "name": "debug capy darwin r6rs fresh",
+          "context": {
+            "scheme": "capy",
+            "dialect": "r6rs",
+            "target": "darwin",
+            "profile": "debug",
+            "compileMode": "fresh-auto"
+          },
+          "registryPackages": ["sample/selector-root"],
+          "registryEdges": ["sample/selector-root"]
+        }
+      ]
+    }
+  ]
+}

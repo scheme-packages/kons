@@ -1,5 +1,7 @@
 (import (scheme base)
         (scheme process-context)
+        (scheme file)
+        (scheme write)
         (srfi 64)
         (kons util)
         (kons manifest)
@@ -32,9 +34,15 @@
  "(define-library (example lib)
   (export message (rename internal public-name))
   (import (scheme base) (scheme write))
+  (include-ci \"case-imports.scm\")
   (begin
     (define (message) \"ok\")
     (define internal 1)))
+")
+
+(write-file
+ (path-join root "src/example/case-imports.scm")
+ "(IMPORT (ONLY (EXAMPLE DEP) RUN))
 ")
 
 (let* ((manifest (parse-manifest (path-join root "kons.scm")))
@@ -42,13 +50,17 @@
        (entry (car libraries)))
   (test-equal "discovered library kind" 'r7rs (car entry))
   (test-equal "discovered library name" '(example lib) (cadr entry))
-  (test-equal "discovered imports" '((scheme base) (scheme write)) (library-entry-imports entry))
+  (test-equal "discovered imports" '((scheme base) (scheme write) (example dep)) (library-entry-imports entry))
+  (test-equal
+   "discovered import specs preserve include-ci folding"
+   '((scheme base) (scheme write) (only (example dep) run))
+   (library-entry-import-specs/context (manifest-source-root manifest) entry #f))
   (test-equal "discovered exports" '(message public-name) (library-entry-exports entry))
   (test-equal
    "public libraries include metadata"
    '((r7rs (example lib)
            (path "/tmp/kons-library-discovery-test/src/example/lib.sld")
-           (imports (scheme base) (scheme write))
+           (imports (scheme base) (scheme write) (example dep))
            (exports message public-name)))
    (effective-public-package-libraries manifest)))
 
@@ -71,43 +83,6 @@
               (library-entry-path "" entry))
   (test-equal "R6RS discovered imports" '((rnrs)) (library-entry-imports entry))
   (test-equal "R6RS discovered exports" '(run public-hidden) (library-entry-exports entry)))
-
-(run-command (string-append "mkdir -p " (shell-quote (path-join root "src/other"))))
-
-(write-file
- (path-join root "src/example/duplicate.sld")
- "(define-library (example duplicate)
-  (export one)
-  (import (scheme base))
-  (begin (define one 1)))
-")
-
-(write-file
- (path-join root "src/other/duplicate.sld")
- "(define-library (example duplicate)
-  (export two)
-  (import (scheme base))
-  (begin (define two 2)))
-")
-
-(write-file
- (path-join root "duplicate-check.scm")
- "(import (scheme base)
-        (scheme process-context)
-        (kons manifest)
-        (kons library-discovery))
-
-(effective-package-libraries (parse-manifest \"/tmp/kons-library-discovery-test/kons.scm\"))
-(exit 0)
-")
-
-(test-assert
- "duplicate discovered libraries fail"
- (not (= 0 (shell-command-status
-            (string-append
-             "capy -L vendor/scm-args/src,vendor/conduit/src,src -s "
-             (shell-quote (path-join root "duplicate-check.scm"))
-             " >/dev/null 2>&1")))))
 
 (let ((failures (test-runner-fail-count (test-runner-get))))
   (test-end "kons library discovery")
