@@ -25,7 +25,7 @@
             ((null? items) default)
             ((and (pair? (cdr items)) (string=? (car items) name))
              (cadr items))
-            (else (loop (cdr items)))))))
+            (else (loop (cdr items))))))
        (define (arg-values name)
          (let loop ((items (command-line)) (out '()))
            (cond
@@ -102,7 +102,7 @@
        (define (output key value)
          (emit 'kons::output key value))
        (define (metadata key value)
-         (emit 'kons::metadata key value))))
+         (emit 'kons::metadata key value)))))
 
 (define (r6rs-build-helper-library)
   '(library (kons build)

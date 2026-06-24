@@ -21,6 +21,12 @@
 (define resolver-registry-url "http://127.0.0.1:9")
 (define stale-root (path-join root "stale-lock-command"))
 (define stale-home (path-join stale-root "home"))
+(define shared-capy-cache-home
+  (or (get-environment-variable "KONS_TEST_CAPY_CACHE_HOME")
+      (get-environment-variable "XDG_CACHE_HOME")))
+
+(define (capy-cache-home fallback)
+  (or shared-capy-cache-home fallback))
 
 (define (write-file path text)
   (run-command (string-append "mkdir -p " (shell-quote (dirname path))))
@@ -274,7 +280,7 @@
     "KONS_HOME="
     (shell-quote stale-home)
     " XDG_CACHE_HOME="
-    (shell-quote (path-join stale-root "cache"))
+    (shell-quote (capy-cache-home (path-join stale-root "cache")))
     " KONS_SCHEME=capy capy -L vendor/scm-args/src,vendor/conduit/src,src -s src/kons/main.scm -- --manifest "
     (shell-quote (path-join stale-root "kons.scm"))
     " "
@@ -354,7 +360,7 @@
          "KONS_HOME="
          (shell-quote (path-join root "home"))
          " XDG_CACHE_HOME="
-         (shell-quote (path-join root "cache"))
+         (shell-quote (capy-cache-home (path-join root "cache")))
          " KONS_SCHEME=capy capy -L vendor/scm-args/src,vendor/conduit/src,src -s src/kons/main.scm -- --manifest "
          (shell-quote (path-join root "kons.scm"))
          " --message-format json check")
@@ -370,7 +376,7 @@
          "KONS_HOME="
          (shell-quote checksum-home)
          " XDG_CACHE_HOME="
-         (shell-quote (path-join checksum-root "cache"))
+         (shell-quote (capy-cache-home (path-join checksum-root "cache")))
          " KONS_SCHEME=capy capy -L vendor/scm-args/src,vendor/conduit/src,src -s src/kons/main.scm -- --manifest "
          (shell-quote (path-join checksum-root "kons.scm"))
          " --message-format json verify --offline")
@@ -386,7 +392,7 @@
           "KONS_HOME="
           (shell-quote resolver-home)
           " XDG_CACHE_HOME="
-          (shell-quote (path-join resolver-root "cache"))
+          (shell-quote (capy-cache-home (path-join resolver-root "cache")))
           " KONS_SCHEME=capy capy -L vendor/scm-args/src,vendor/conduit/src,src -s src/kons/main.scm -- --manifest "
           (shell-quote (path-join resolver-root "kons.scm"))
           " --message-format json update --offline")
@@ -423,7 +429,7 @@
           "KONS_HOME="
           (shell-quote stale-home)
           " XDG_CACHE_HOME="
-          (shell-quote (path-join stale-root "cache"))
+          (shell-quote (capy-cache-home (path-join stale-root "cache")))
           " KONS_SCHEME=capy capy -L vendor/scm-args/src,vendor/conduit/src,src -s src/kons/main.scm -- --manifest "
           (shell-quote (path-join stale-root "kons.scm"))
           " --message-format json verify --locked --offline")

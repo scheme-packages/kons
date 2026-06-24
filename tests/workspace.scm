@@ -29,6 +29,12 @@
 (define capy-implementation-helper-root (path-join workspace-root "profiles/capy-implementation-helper"))
 (define guile-implementation-helper-root (path-join workspace-root "profiles/guile-implementation-helper"))
 (define lib-helper-root (path-join workspace-root "profiles/lib-helper"))
+(define shared-capy-cache-home
+  (or (get-environment-variable "KONS_TEST_CAPY_CACHE_HOME")
+      (get-environment-variable "XDG_CACHE_HOME")))
+
+(define (capy-cache-home fallback)
+  (or shared-capy-cache-home fallback))
 
 (define (detail-member? value details)
   (cond
@@ -176,7 +182,7 @@
   (string-append
    "cd " (shell-quote app-root)
    " && "
-   "XDG_CACHE_HOME=" (shell-quote (path-join root "cache"))
+   "XDG_CACHE_HOME=" (shell-quote (capy-cache-home (path-join root "cache")))
    " KONS_HOME=" (shell-quote (path-join root "home"))
    " KONS_SCHEME=capy"
    " " (shell-quote (path-join repo-root "bin/kons"))
@@ -194,7 +200,7 @@
   (string-append
    "cd " (shell-quote workspace-root)
    " && "
-   "XDG_CACHE_HOME=" (shell-quote (path-join root "cache"))
+   "XDG_CACHE_HOME=" (shell-quote (capy-cache-home (path-join root "cache")))
    " KONS_HOME=" (shell-quote (path-join root "home"))
    " KONS_SCHEME=capy"
    " " (shell-quote (path-join repo-root "bin/kons"))

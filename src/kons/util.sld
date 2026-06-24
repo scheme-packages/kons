@@ -697,8 +697,18 @@
 	      (lambda (out)
 	        (pretty-write expr out)
 	        (newline out)))
-    (run-command
-     (string-append "mv -f " (shell-quote tmp) " " (shell-quote path)))))
+	    (let ((unchanged?
+	           (and (file-exists? path)
+	                (= 0
+	                   (shell-command-status
+	                    (string-append "cmp -s "
+	                                   (shell-quote tmp)
+	                                   " "
+	                                   (shell-quote path)))))))
+	      (if unchanged?
+	          (delete-file tmp)
+	          (run-command
+	           (string-append "mv -f " (shell-quote tmp) " " (shell-quote path)))))))
 
 (define (symbol-list? value)
   (and (list? value)
