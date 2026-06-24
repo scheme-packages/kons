@@ -127,13 +127,16 @@ For CI, set `KONS_REGISTRY_TOKEN` instead of writing credentials to
 
 `PUT /api/v1/packages/new`
 
+Package names must use lowercase slash-separated segments. Top-level route names
+such as `api`, `auth`, `index`, `search`, and `tokens` are reserved.
+
 ```json
 {
   "name": "example/lib",
   "owner": "scheme-packages",
   "version": "1.0.0",
   "description": "Example Scheme library",
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "keywords": ["scheme", "example"],
   "dialects": ["r7rs"],
   "dependencies": [
@@ -142,6 +145,77 @@ For CI, set `KONS_REGISTRY_TOKEN` instead of writing credentials to
   "archiveBase64": "..."
 }
 ```
+
+## Signed Metadata
+
+The registry can sign package-version metadata and sparse index entries with
+Ed25519. This is optional for local registries, but public registries should
+enable it and publish the public key out-of-band for clients that set
+`(trust required)`.
+
+Generate a key pair:
+
+```sh
+openssl genpkey -algorithm ed25519 -out registry-signing-private.pem
+openssl pkey -in registry-signing-private.pem -pubout -out registry-signing-public.pem
+```
+
+Configure the server:
+
+```sh
+KONS_REGISTRY_SIGNING_KEY_ID=2026-06-main
+KONS_REGISTRY_SIGNING_PRIVATE_KEY_FILE=/run/secrets/kons-registry-signing-private.pem
+KONS_REGISTRY_SIGNING_PUBLIC_KEY_FILE=/etc/kons/registry-signing-public.pem
+```
+
+Clients can require signatures by pinning the public key in
+`$KONS_HOME/config/registries.scm`:
+
+```scheme
+(registries
+  (registry
+    (name "public")
+    (url "https://packages.example.org")
+    (trust required)
+    (key-id "2026-06-main")
+    (key-file "keys/2026-06-main.pem")))
+```
+
+For key rotation, configure clients with both trusted keys before switching the
+server:
+
+```scheme
+(registries
+  (registry
+    (name "public")
+    (url "https://packages.example.org")
+    (trust required)
+    (keys
+      (key (id "2026-06-main") (file "keys/2026-06-main.pem"))
+      (key (id "2026-09-main") (file "keys/2026-09-main.pem")))))
+```
+
+After clients have both keys, restart the registry with
+`KONS_REGISTRY_SIGNING_KEY_ID=2026-09-main` and the new private/public key
+files. Keep the old public key in client configs until old signed metadata
+caches and older lockfiles no longer need to be verified offline.
+
+## Rate Limits
+
+The registry applies in-memory fixed-window limits per client address. Configure
+them with:
+
+```sh
+KONS_RATE_LIMITS=1
+KONS_RATE_LIMIT_WINDOW_MS=60000
+KONS_RATE_LIMIT_AUTH_LIMIT=20
+KONS_RATE_LIMIT_PUBLISH_LIMIT=30
+KONS_RATE_LIMIT_SEARCH_LIMIT=120
+KONS_RATE_LIMIT_DOWNLOAD_LIMIT=120
+```
+
+Set `KONS_RATE_LIMITS=0` to disable limits. Behind a proxy, forward the real
+client address in `X-Forwarded-For`.
 
 ## Sparse Index
 
@@ -157,11 +231,12 @@ Set `KONS_STORAGE=s3` and configure `KONS_S3_*` variables. See `.env.example`.
 ## Ownership
 
 - The first authenticated publisher owns the package.
-- Owners can publish new versions, yank/unyank, and delete packages or specific
-  package versions from the account page.
+- Owners can publish new versions and yank/unyank versions from the account
+  page.
 - Owners can be managed through `kons owner list`, `kons owner --add`, and
   `kons owner --remove`.
 - Admin emails from `KONS_ADMIN_EMAILS` can manage any package.
-- Package versions are immutable.
+- Package versions are immutable; delete requests are denied and recorded in
+  the audit log.
 - Yanking does not delete archives; it only prevents new dependency resolution
   from selecting that version.

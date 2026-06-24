@@ -1,0 +1,147 @@
+/* Responsive */
+@media (max-width: 920px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-col.full {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero {
+    padding: 2.5rem 0 2rem;
+  }
+
+  .hero h1 {
+    font-size: 1.9rem;
+  }
+
+  .version-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .version-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .topbar-inner {
+    gap: 0.75rem;
+  }
+
+  .navlink {
+    padding: 0.35rem 0.55rem;
+  }
+
+  .searchbar {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .searchbar .search-icon {
+    top: 22px;
+  }
+
+  .searchbar input {
+    padding-right: 0.8rem;
+  }
+
+  .search-type {
+    position: static;
+    transform: none;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar-inner {
+    gap: 0.5rem;
+  }
+
+  .brand {
+    margin-right: 0;
+    padding: 0;
+  }
+
+  .navlinks {
+    gap: 0.55rem;
+  }
+
+  .topbar-actions {
+    gap: 0.3rem;
+  }
+
+  .topbar-actions .btn:not(.btn-icon) {
+    min-width: 28px;
+    padding: 0.28rem;
+  }
+
+  .topbar-actions .btn:not(.btn-icon) span {
+    display: none;
+  }
+
+  .auth-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .result-top {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+
+  .result-meta {
+    justify-items: start;
+    flex-direction: row;
+    gap: 0.5rem 1rem;
+  }
+
+  .secret-banner {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .secret-banner .secret-icon {
+    display: none;
+  }
+
+  .notice,
+  .account-package-head,
+  .account-version-row {
+    grid-template-columns: 1fr;
+  }
+
+  .notice .btn,
+  .account-package-head .btn,
+  .account-version-row .version-actions {
+    justify-self: start;
+  }
+
+  .topbar .navlink span {
+    display: none;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .skeleton {
+    animation: none;
+    background: var(--surface-3);
+  }
+}

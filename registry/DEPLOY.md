@@ -64,6 +64,57 @@ Notes:
   Disable it and set `KONS_EMAIL_ALLOWLIST` to restrict sign-ups.
 - Do **not** set `KONS_EMAIL_SHOW_CODES=1` in production when SMTP is configured.
 
+### Sign registry metadata
+
+Public registries should sign package-version metadata and publish the public
+key through a trusted channel. Generate an Ed25519 key pair outside the image:
+
+```sh
+openssl genpkey -algorithm ed25519 -out registry-signing-private.pem
+openssl pkey -in registry-signing-private.pem -pubout -out registry-signing-public.pem
+```
+
+Mount the private key as a secret and set:
+
+```sh
+KONS_REGISTRY_SIGNING_KEY_ID=2026-06-main
+KONS_REGISTRY_SIGNING_PRIVATE_KEY_FILE=/run/secrets/kons-registry-signing-private.pem
+KONS_REGISTRY_SIGNING_PUBLIC_KEY_FILE=/etc/kons/registry-signing-public.pem
+```
+
+Clients that require trust should pin the public key in
+`$KONS_HOME/config/registries.scm`:
+
+```scheme
+(registries
+  (registry
+    (name "public")
+    (url "https://packages.example.org")
+    (default #t)
+    (trust required)
+    (key-id "2026-06-main")
+    (key-file "keys/2026-06-main.pem")))
+```
+
+To rotate keys, distribute the new public key first and configure clients with
+both keys:
+
+```scheme
+(registries
+  (registry
+    (name "public")
+    (url "https://packages.example.org")
+    (default #t)
+    (trust required)
+    (keys
+      (key (id "2026-06-main") (file "keys/2026-06-main.pem"))
+      (key (id "2026-09-main") (file "keys/2026-09-main.pem")))))
+```
+
+Then restart the registry with the new `KONS_REGISTRY_SIGNING_KEY_ID` and key
+files. Keep the old public key configured until clients no longer need to verify
+old metadata caches or old lockfiles in offline/frozen mode.
+
 ### Add deployer messages to the web UI
 
 For a single notice:
@@ -78,6 +129,23 @@ KONS_REGISTRY_MESSAGE_KIND=warning
 
 For multiple notices, set `KONS_REGISTRY_MESSAGES_JSON` to a JSON array of
 objects with `title`, `body`, `url`, `label`, and `kind`.
+
+### Configure rate limits
+
+Rate limits are enabled by default and are tracked in memory per registry
+process and client address. Tune the fixed-window limits with:
+
+```sh
+KONS_RATE_LIMIT_WINDOW_MS=60000
+KONS_RATE_LIMIT_AUTH_LIMIT=20
+KONS_RATE_LIMIT_PUBLISH_LIMIT=30
+KONS_RATE_LIMIT_SEARCH_LIMIT=120
+KONS_RATE_LIMIT_DOWNLOAD_LIMIT=120
+```
+
+Use `KONS_RATE_LIMITS=0` only for trusted local deployments. Behind a reverse
+proxy, forward the original client address in `X-Forwarded-For`; otherwise all
+clients may share one limit bucket.
 
 ### Restrict registration to specific addresses
 

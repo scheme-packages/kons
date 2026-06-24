@@ -1,0 +1,156 @@
+/* Empty / loading */
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 0.4rem;
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty .empty-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  color: var(--line-strong);
+}
+
+.empty .empty-title {
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.error-state {
+  padding: 0.85rem 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--danger);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.error-state svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+/* Skeleton */
+.skeleton-row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  border-radius: var(--r-sm);
+  animation: shimmer 1.4s linear infinite;
+}
+
+.skeleton-title {
+  height: 0.9rem;
+  width: 45%;
+}
+
+.skeleton-meta {
+  height: 0.8rem;
+  width: 70%;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+  box-shadow: none;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-icon {
+  display: inline-flex;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.toast-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.toast-success .toast-icon {
+  color: var(--success);
+}
+
+.toast-warning .toast-icon,
+.toast-danger .toast-icon {
+  color: var(--danger);
+}
+
+/* Footer */
+.site-footer {
+  margin-top: 1rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.site-footer .container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+}
+
+.footer-links a {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.footer-links a:hover {
+  color: var(--link);
+}
+
+.site-footer small {
+  font-size: 0.85rem;
+}
+

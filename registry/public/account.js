@@ -363,12 +363,6 @@ function renderPackages() {
   list.querySelectorAll("[data-unyank-version]").forEach((button) => {
     button.addEventListener("click", () => setYank(button.dataset.package, button.dataset.unyankVersion, true));
   });
-  list.querySelectorAll("[data-delete-version]").forEach((button) => {
-    button.addEventListener("click", () => deleteVersion(button.dataset.package, button.dataset.deleteVersion));
-  });
-  list.querySelectorAll("[data-delete-package]").forEach((button) => {
-    button.addEventListener("click", () => deletePackage(button.dataset.deletePackage));
-  });
 }
 
 function accountPackageHtml(pkg) {
@@ -380,7 +374,7 @@ function accountPackageHtml(pkg) {
           <a class="account-package-name" href="${escapeAttr(publicHref(`/#/pkg/${encodeURIComponent(pkg.name)}`, state.providers?.publicUrl))}">${escapeHtml(pkg.name)}</a>
           <div class="account-package-sub">${escapeHtml(pkg.description || "No description")}</div>
         </div>
-        <button class="btn btn-danger btn-sm" type="button" data-delete-package="${escapeAttr(pkg.name)}">${icon("trash")}<span>Delete package</span></button>
+        <span class="chip">immutable</span>
       </div>
       <div class="account-version-list">
         ${versions.map((version) => accountVersionHtml(pkg, version)).join("")}
@@ -403,7 +397,6 @@ function accountVersionHtml(pkg, version) {
         ${version.yanked
           ? `<button class="btn btn-subtle btn-sm" type="button" data-package="${escapeAttr(pkg.name)}" data-unyank-version="${escapeAttr(version.version)}">${icon("refresh")}<span>Unyank</span></button>`
           : `<button class="btn btn-danger btn-sm" type="button" data-package="${escapeAttr(pkg.name)}" data-yank-version="${escapeAttr(version.version)}">${icon("yank")}<span>Yank</span></button>`}
-        <button class="btn btn-danger btn-sm" type="button" data-package="${escapeAttr(pkg.name)}" data-delete-version="${escapeAttr(version.version)}">${icon("trash")}<span>Delete</span></button>
       </div>
     </div>
   `;
@@ -416,28 +409,6 @@ async function setYank(name, version, unyank) {
     await api(`/api/v1/packages/${encodeURIComponentName(name)}/${encodeURIComponent(version)}/${action}`, { method });
     await loadPackages();
     showToast(unyank ? "Version unyanked" : "Version yanked");
-  } catch (error) {
-    showToast(error.message, "danger");
-  }
-}
-
-async function deleteVersion(name, version) {
-  if (!window.confirm(`Delete ${name} ${version}? This cannot be undone.`)) return;
-  try {
-    await api(`/api/v1/packages/${encodeURIComponentName(name)}/${encodeURIComponent(version)}`, { method: "DELETE" });
-    await loadPackages();
-    showToast("Version deleted");
-  } catch (error) {
-    showToast(error.message, "danger");
-  }
-}
-
-async function deletePackage(name) {
-  if (!window.confirm(`Delete ${name} and all published versions? This cannot be undone.`)) return;
-  try {
-    await api(`/api/v1/packages/${encodeURIComponentName(name)}/delete`, { method: "DELETE" });
-    await loadPackages();
-    showToast("Package deleted");
   } catch (error) {
     showToast(error.message, "danger");
   }

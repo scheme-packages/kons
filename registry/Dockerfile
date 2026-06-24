@@ -9,7 +9,8 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js smtp.js ./
+COPY server.js ./
+COPY src ./src
 COPY public ./public
 
 RUN mkdir -p /var/lib/kons-registry

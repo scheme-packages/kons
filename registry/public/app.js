@@ -21,6 +21,20 @@ import {
   showToast,
   timeAgo,
 } from "./shared.js";
+import {
+  identifierPageHtml,
+  libraryPageHtml,
+  libraryRoute,
+  routeForTypedResult,
+} from "./route-views.js";
+
+function urlHost(value) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value || "";
+  }
+}
 
 const state = {
   meta: null,
@@ -31,6 +45,8 @@ const state = {
   route: null,
   current: null,
   currentDependents: [],
+  currentLibrary: null,
+  currentIdentifier: null,
 };
 
 init();
@@ -67,15 +83,8 @@ async function loadMeta() {
   const meta = state.meta;
   applyRegistryChrome(meta);
   renderRegistryMessages(meta.messages);
-  const host = (() => {
-    try {
-      return new URL(meta.baseUrl).host;
-    } catch {
-      return meta.baseUrl || "";
-    }
-  })();
   const label = meta.storage === "local" ? "Local registry" : `${meta.storage} registry`;
-  $("registry-meta").textContent = [label, host].filter(Boolean).join(" · ");
+  $("registry-meta").textContent = [label, urlHost(meta.baseUrl)].filter(Boolean).join(" · ");
 }
 
 async function loadMe() {
@@ -85,12 +94,24 @@ async function loadMe() {
 
 function handleRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
-  const match = hash.match(/^pkg\/(.+)$/);
-  if (match) {
-    const name = decodeURIComponent(match[1]);
+  const packageMatch = hash.match(/^pkg\/(.+)$/);
+  const libraryMatch = hash.match(/^lib\/(.+)$/);
+  const identifierMatch = hash.match(/^identifier\/(.+)$/);
+  if (packageMatch) {
+    const name = decodeURIComponent(packageMatch[1]);
     state.route = { view: "detail", name };
     showView("detail");
     loadDetail(name);
+  } else if (libraryMatch) {
+    const key = decodeURIComponent(libraryMatch[1]);
+    state.route = { view: "library", key };
+    showView("detail");
+    loadLibraryPage(key);
+  } else if (identifierMatch) {
+    const name = decodeURIComponent(identifierMatch[1]);
+    state.route = { view: "identifier", name };
+    showView("detail");
+    loadIdentifierPage(name);
   } else {
     state.route = { view: "home" };
     showView("home");
@@ -150,21 +171,20 @@ function renderResults() {
 }
 
 function resultTypeLabel(type, count) {
-  const singular = type === "library" ? "library result"
-    : type === "identifier" ? "identifier result"
-      : type === "all" ? "result"
-        : "package";
-  const plural = type === "library" ? "library results"
-    : type === "identifier" ? "identifier results"
-      : type === "all" ? "results"
-        : "packages";
-  return count === 1 ? singular : plural;
+  const labels = {
+    library: ["library result", "library results"],
+    identifier: ["identifier result", "identifier results"],
+    all: ["result", "results"],
+    package: ["package", "packages"],
+  };
+  const pair = labels[type] || labels.package;
+  return count === 1 ? pair[0] : pair[1];
 }
 
 function typedResultRowHtml(item) {
   if (item.type === "package") {
     return `
-      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package || item.name)}">
+      <button class="result-row" type="button" data-route="${escapeAttr(routeForTypedResult(item))}">
         <span class="result-main">
           <span class="result-top">
             <span class="result-name">${packagePathHtml(item.package || item.name)}</span>
@@ -177,7 +197,7 @@ function typedResultRowHtml(item) {
   }
   if (item.type === "library") {
     return `
-      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package)}">
+      <button class="result-row" type="button" data-route="${escapeAttr(routeForTypedResult(item))}">
         <span class="result-main">
           <span class="result-top">
             <span class="result-name">${escapeHtml(item.name)}</span>
@@ -191,7 +211,7 @@ function typedResultRowHtml(item) {
   }
   if (item.type === "identifier") {
     return `
-      <button class="result-row" type="button" data-pkg="${escapeAttr(item.package)}">
+      <button class="result-row" type="button" data-route="${escapeAttr(routeForTypedResult(item))}">
         <span class="result-main">
           <span class="result-top">
             <span class="result-name">${escapeHtml(item.identifier || item.name)}</span>
@@ -207,9 +227,9 @@ function typedResultRowHtml(item) {
 }
 
 function bindTypedResultRows(results) {
-  results.querySelectorAll("[data-pkg]").forEach((row) => {
+  results.querySelectorAll("[data-route]").forEach((row) => {
     row.addEventListener("click", () => {
-      location.hash = `#/pkg/${encodeURIComponent(row.dataset.pkg)}`;
+      location.hash = row.dataset.route;
     });
   });
 }
@@ -329,10 +349,52 @@ async function loadDetail(name) {
   }
 }
 
+async function loadLibraryPage(key) {
+  const detail = $("package-detail");
+  detail.innerHTML = skeletonRows(3);
+  try {
+    const data = await api(`/api/v1/libraries/${encodeURIComponent(key)}`);
+    state.currentLibrary = data;
+    renderLibraryPage();
+  } catch (error) {
+    state.currentLibrary = null;
+    detail.innerHTML = errorDetailHtml(error.message);
+  }
+}
+
+async function loadIdentifierPage(name) {
+  const detail = $("package-detail");
+  detail.innerHTML = skeletonRows(3);
+  try {
+    const data = await api(`/api/v1/identifiers?q=${encodeURIComponent(name)}`);
+    state.currentIdentifier = { name, results: data.identifiers || [] };
+    renderIdentifierPage();
+  } catch (error) {
+    state.currentIdentifier = null;
+    detail.innerHTML = errorDetailHtml(error.message);
+  }
+}
+
+function errorDetailHtml(message) {
+  return `
+    <div class="error-state">
+      <span>${icon("warning")}</span>
+      <span>${escapeHtml(message)}</span>
+      <a class="btn btn-subtle btn-sm" href="#/">Back to packages</a>
+    </div>
+  `;
+}
+
 async function refreshCurrent() {
   if (state.route?.view === "detail" && state.current) {
     await loadDetail(state.current.name);
     showToast("Package refreshed");
+  } else if (state.route?.view === "library") {
+    await loadLibraryPage(state.route.key);
+    showToast("Library refreshed");
+  } else if (state.route?.view === "identifier") {
+    await loadIdentifierPage(state.route.name);
+    showToast("Identifier refreshed");
   } else {
     await search();
   }
@@ -422,6 +484,11 @@ function renderPackageDetail() {
               ${metaRow("Created", formatDate(pkg.createdAt) || "—")}
               ${metaRow("Updated", formatDate(pkg.updatedAt) || "—")}
               ${metaRow("Index path", `<code>${escapeHtml(pkg.indexPath)}</code>`)}
+              ${metaRow("Signature status", signatureStatusHtml(pkg))}
+              ${signedMetadata(pkg) && pkg.trust?.alg ? metaRow("Signing algorithm", `<code>${escapeHtml(pkg.trust.alg)}</code>`) : ""}
+              ${signedMetadata(pkg) && pkg.trust?.keyId ? metaRow("Signing key", `<code>${escapeHtml(pkg.trust.keyId)}</code>`) : ""}
+              ${latest?.checksum ? metaRow("Latest checksum", checksumHtml(latest.checksum)) : ""}
+              ${latest?.publishedBy?.username ? metaRow("Latest published by", escapeHtml(latest.publishedBy.username)) : ""}
             </div>
           </div>
         </div>
@@ -457,6 +524,39 @@ function renderPackageDetail() {
     link.addEventListener("click", (event) => {
       event.preventDefault();
       location.hash = `#/pkg/${encodeURIComponent(link.dataset.dependency)}`;
+    });
+  });
+}
+
+function renderLibraryPage() {
+  const detail = $("package-detail");
+  const data = state.currentLibrary || {};
+  detail.innerHTML = libraryPageHtml(data, state.route?.key);
+  bindPackageLinks(detail);
+}
+
+function renderIdentifierPage() {
+  const detail = $("package-detail");
+  const data = state.currentIdentifier || {};
+  detail.innerHTML = identifierPageHtml(data, state.route?.name);
+  bindPackageLinks(detail);
+  bindLibraryLinks(detail);
+}
+
+function bindPackageLinks(root) {
+  root.querySelectorAll("[data-package-link]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      location.hash = `#/pkg/${encodeURIComponent(link.dataset.packageLink)}`;
+    });
+  });
+}
+
+function bindLibraryLinks(root) {
+  root.querySelectorAll("[data-library-link]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      location.hash = libraryRoute(link.dataset.libraryLink);
     });
   });
 }
@@ -552,6 +652,27 @@ function metaRow(key, value) {
   return `<div class="meta-row"><span class="meta-key">${escapeHtml(key)}</span><span class="meta-val">${value}</span></div>`;
 }
 
+function signedMetadata(pkg) {
+  const trust = pkg.trust || {};
+  return Boolean(trust.signedMetadata);
+}
+
+function signatureStatusHtml(pkg) {
+  return signedMetadata(pkg) ? "Signed metadata" : "Unsigned metadata";
+}
+
+function signatureDetailHtml(pkg) {
+  const trust = pkg.trust || {};
+  if (!trust.signedMetadata) return "signature unsigned";
+  if (trust.keyId) return `signature <code>${escapeHtml(trust.keyId)}</code>`;
+  if (trust.alg) return `signature <code>${escapeHtml(trust.alg)}</code>`;
+  return "signature signed";
+}
+
+function checksumHtml(checksum) {
+  return `<code>${escapeHtml(String(checksum))}</code>`;
+}
+
 function ownersHtml(owners) {
   if (!owners.length) return `<div class="muted" style="font-size:0.88rem">No owners</div>`;
   return `<div class="owner-list">${owners.map((owner) => `
@@ -566,6 +687,9 @@ function ownersHtml(owners) {
 function versionHtml(pkg, version) {
   const download = `/api/v1/packages/${encodeURIComponentName(pkg.name)}/${encodeURIComponent(version.version)}/download`;
   const statusChip = version.yanked ? chip("yanked", "danger") : chip("active", "success");
+  const checksum = version.checksum || "";
+  const checksumSummary = checksum ? String(checksum).slice(0, 16) : "no-checksum";
+  const publisher = version.publishedBy?.username || "";
   const actions = `
     <div class="version-actions">
       <a class="btn btn-subtle btn-sm" href="${download}">${icon("download")} Download</a>
@@ -586,7 +710,12 @@ function versionHtml(pkg, version) {
           <span>${escapeHtml(version.license || "unlicensed")}</span>
           <span>${countLabel(version.downloads || 0, "download")}</span>
           <span>${formatBytes(version.size)}</span>
-          <code>${escapeHtml(String(version.checksum || "").slice(0, 16))}…</code>
+          <code>${escapeHtml(checksumSummary)}${checksum ? "…" : ""}</code>
+        </div>
+        <div class="version-meta">
+          ${checksum ? `<span>checksum ${checksumHtml(checksum)}</span>` : `<span>checksum unavailable</span>`}
+          <span>${signatureDetailHtml(pkg)}</span>
+          ${publisher ? `<span>published by <code>${escapeHtml(publisher)}</code></span>` : ""}
         </div>
       </div>
       ${actions}
