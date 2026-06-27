@@ -22,10 +22,3 @@
 
 (dev-dependencies)
 
-(overrides
-  (path
-    (name (args))
-    (path "vendor/scm-args"))
-  (path
-    (name (conduit))
-    (path "vendor/conduit")))

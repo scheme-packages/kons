@@ -435,10 +435,18 @@
 	        (locked-system-entry-names lock include-dev?)
 	        (live-system-dependency-names manifest include-dev? features cmd))))
 
-(define (write-system-check-script path library-name)
+(define (write-system-check-script path scheme library-name)
   (call-with-output-file path
     (lambda (out)
-      (write `(import (scheme base) ,(library-name-form library-name)) out)
+      (let* ((mode (implementation-mode scheme))
+             (standard (and mode (implementation-mode-field mode 'standard #f)))
+             (base-import (if (eq? standard 'r6rs) '(rnrs) '(scheme base)))
+             (checked-import (library-name-form library-name)))
+        (write `(import ,base-import
+                        ,@(if (equal? base-import checked-import)
+                              '()
+                              (list checked-import)))
+               out))
       (newline out)
       (write '(define kons-system-check #t) out)
       (newline out))))
@@ -454,7 +462,7 @@
          (cmd #f))
     (when (file-exists? script)
       (delete-file script))
-    (write-system-check-script script library-name)
+    (write-system-check-script script scheme library-name)
     (set! cmd (scheme-command scheme srcs script '()))
     (unless (= (shell-command-status (string-append cmd " >/dev/null 2>/dev/null")) 0)
       (dependency-error "system Scheme library is not available for selected implementation"

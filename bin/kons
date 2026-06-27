@@ -25,6 +25,108 @@ main=$LIBDIR/kons/main.scm
 ARGS_SRCDIR=
 CONDUIT_SRCDIR=
 LOAD_PATH=
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+manager_command_available() {
+  case "$1" in
+    capy)
+      need_cmd capy
+      ;;
+    gauche|gosh)
+      need_cmd gosh
+      ;;
+    guile)
+      need_cmd guile
+      ;;
+    chibi|chibi-scheme)
+      need_cmd chibi-scheme
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+select_doctor_manager_scheme() {
+  if manager_command_available "$scheme"; then
+    printf '%s\n' "$scheme"
+    return 0
+  fi
+  if need_cmd capy; then
+    printf '%s\n' capy
+    return 0
+  fi
+  if need_cmd gosh; then
+    printf '%s\n' gauche
+    return 0
+  fi
+  if need_cmd guile; then
+    printf '%s\n' guile
+    return 0
+  fi
+  if need_cmd chibi-scheme; then
+    printf '%s\n' chibi
+    return 0
+  fi
+  return 1
+}
+
+global_option_takes_value() {
+  case "$1" in
+    --manifest|--path|--workspace-root|--scheme|--features|--target|--profile|--compile-mode|--hook-scheme|--log-level|--message-format|--jobs|-j)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_doctor_command() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --)
+        shift
+        if [ "${1:-}" = doctor ]; then
+          return 0
+        fi
+        return 1
+        ;;
+      doctor)
+        return 0
+        ;;
+      --manifest=*|--path=*|--workspace-root=*|--scheme=*|--features=*|--target=*|--profile=*|--compile-mode=*|--hook-scheme=*|--log-level=*|--message-format=*|--jobs=*)
+        shift
+        ;;
+      -*)
+        if global_option_takes_value "$1"; then
+          shift
+          [ "$#" -gt 0 ] || return 1
+          shift
+        else
+          shift
+        fi
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done
+  return 1
+}
+
+if is_doctor_command "$@" && ! manager_command_available "$scheme"; then
+  if scheme=$(select_doctor_manager_scheme); then
+    :
+  else
+    echo "kons: cannot run doctor; install capy, gosh, guile, or chibi-scheme" >&2
+    exit 1
+  fi
+fi
+
 if [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR/scm-args/src" ]; then
   ARGS_SRCDIR=$VENDORDIR/scm-args/src
 elif [ -n "${VENDORDIR:-}" ] && [ -d "$VENDORDIR" ]; then

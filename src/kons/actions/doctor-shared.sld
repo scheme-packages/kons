@@ -8,10 +8,14 @@
 
   (begin
 	(define (command-path command)
-	  (let ((found
-	         (capture-first-line
-	          (string-append "command -v " (shell-quote command) " 2>/dev/null"))))
-	    (if (string=? found "") #f found)))
+	  (let* ((result
+	          (capture-command-lines/status
+	           (string-append "command -v " (shell-quote command) " 2>/dev/null")))
+	         (status (car result))
+	         (lines (cadr result)))
+	    (if (and (= status 0) (pair? lines) (not (string=? (car lines) "")))
+	        (car lines)
+	        #f)))
 
 	(define (command-report name command role required?)
 	  (let ((path (command-path command)))

@@ -17,7 +17,8 @@
 (define (cmd-init cmd)
   (let* ((dir (starter-command-directory cmd "init" "."))
          (raw-name (command-option cmd "name" (starter-default-name dir)))
-         (spec (starter-spec dir raw-name "init" (command-flag? cmd "lib"))))
+         (spec (starter-spec dir raw-name "init" (command-flag? cmd "lib")
+                             (starter-selected-dialect cmd))))
     (if (command-flag? cmd "plan")
         (writeln (starter-plan "init" spec))
         (begin
