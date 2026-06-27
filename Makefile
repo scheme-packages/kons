@@ -40,6 +40,7 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/metadata.scm
 	$(RUN_TEST) tests/translation.scm
 	$(RUN_TEST) tests/diagnostics.scm
+	$(RUN_TEST) tests/akku-cli.scm
 	$(RUN_TEST) tests/akku-config.scm
 	$(RUN_TEST) tests/lock.scm
 	$(RUN_TEST) tests/akku-lock.scm

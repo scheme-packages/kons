@@ -155,18 +155,76 @@
 
 (define (resolve-akku-dependencies/failure-details requirements candidates . maybe-preferred-refs)
   (let ((preferred-refs (if (null? maybe-preferred-refs) '() (car maybe-preferred-refs))))
-    (or (resolve-dependencies/failure-details requirements candidates preferred-refs)
+    (or (akku-failure-details
+         (resolve-dependencies/failure-details requirements candidates preferred-refs)
+         candidates)
         (first-akku-conflict
          (resolve-dependencies requirements candidates preferred-refs)))))
 
+(define (candidate-display-name candidate)
+  (name->string (akku-ref candidate 'name '())))
+
+(define (candidate-name-known? name candidates)
+  (let loop ((items candidates))
+    (cond
+     ((null? items) #f)
+     ((string=? name (candidate-display-name (car items))) #t)
+     (else (loop (cdr items))))))
+
+(define (string-prefix? prefix text)
+  (let ((prefix-len (string-length prefix))
+        (text-len (string-length text)))
+    (and (>= text-len prefix-len)
+         (string=? prefix (substring text 0 prefix-len)))))
+
+(define (internal-akku-name? name)
+  (and (string? name)
+       (or (string-prefix? "akku/string/" name)
+           (string-prefix? "akku/list/" name))))
+
+(define (internal-akku-name->user-name name)
+  (cond
+   ((string-prefix? "akku/string/" name)
+    (substring name 12 (string-length name)))
+   ((string-prefix? "akku/list/" name)
+    (string-append
+     "("
+     (string-join (string-split (substring name 10 (string-length name)) #\/) " ")
+     ")"))
+   (else name)))
+
+(define (akku-failure-details details candidates)
+  (cond
+   ((not details) #f)
+   ((and (pair? details)
+         (string? (car details))
+         (string=? (car details) "no matching package version")
+         (pair? (cdr details))
+         (string? (cadr details))
+         (not (candidate-name-known? (cadr details) candidates)))
+    (list "unknown Akku package"
+          (internal-akku-name->user-name (cadr details))
+          '(diagnostic-code . "unknown-akku-package")))
+   (else details)))
+
 (define (resolve-akku-dependencies requirements candidates . maybe-preferred-refs)
   (let* ((preferred-refs (if (null? maybe-preferred-refs) '() (car maybe-preferred-refs)))
-         (resolution (resolve-dependencies requirements candidates preferred-refs))
-         (conflict (first-akku-conflict resolution)))
-    (if conflict
+         (failure (akku-failure-details
+                   (resolve-dependencies/failure-details
+                    requirements
+                    candidates
+                    preferred-refs)
+                   candidates)))
+    (if failure
         (apply dependency-error
-               (append conflict
-                       (list '(diagnostic-code . "akku-conflict"))))
-        resolution)))
+               (append failure
+                       (list '(diagnostic-code . "resolver-conflict"))))
+        (let* ((resolution (resolve-dependencies requirements candidates preferred-refs))
+               (conflict (first-akku-conflict resolution)))
+          (if conflict
+              (apply dependency-error
+                     (append conflict
+                             (list '(diagnostic-code . "akku-conflict"))))
+              resolution)))))
 
   ))

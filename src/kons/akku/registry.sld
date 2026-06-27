@@ -61,7 +61,7 @@
 (define (validated-akku-index-datums path)
   (guard (exn
           ((error-object? exn)
-           (dependency-error "Akku archive index could not be parsed"
+           (dependency-error "malformed Akku archive index"
                              path
                              (error-object-message exn))))
     (read-akku-index path)
@@ -76,17 +76,17 @@
                  (file-exists? signature-path)
                  (file-exists? parsed-path)
                  (file-exists? receipt-path))
-      (dependency-error "verified Akku archive index cache is missing and offline/frozen mode is active"
+      (dependency-error "missing offline cache for verified Akku archive index"
                         archive-url))
     (let* ((receipt (read-one-expr receipt-path))
            (sha1 (verified-receipt-sha1 receipt)))
       (unless (verifier index-path signature-path key-files)
-        (dependency-error "verified Akku archive index cache signature mismatch; run `kons update`"
+        (dependency-error "Akku archive index verification failure for offline cache; run `kons update`"
                           archive-url))
       (unless (and sha1
                    (valid-sha1-text? sha1)
                    (string=? sha1 (sha1-file index-path)))
-        (dependency-error "verified Akku archive index cache does not match its trust receipt; run `kons update`"
+        (dependency-error "Akku archive index verification failure: offline cache does not match its trust receipt; run `kons update`"
                           archive-url))
       (validated-akku-index-datums index-path)
       (make-akku-index-metadata archive-url sha1 index-path signature-path parsed-path))))
@@ -104,7 +104,7 @@
                       tmp-signature
                       "Akku archive index signature could not be fetched")
       (unless (verifier tmp-index tmp-signature key-files)
-        (dependency-error "Akku archive index signature mismatch" archive-url))
+        (dependency-error "Akku archive index verification failure: signature mismatch" archive-url))
       (let* ((index-path (index-cache-path root))
              (signature-path (signature-cache-path root))
              (parsed-path (parsed-cache-path root))

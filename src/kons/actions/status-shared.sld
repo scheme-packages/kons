@@ -19,6 +19,7 @@
           (kons features)
           (kons lock)
           (kons dep registry)
+          (kons dep akku)
           (kons runner)
           (kons options)
           (kons actions paths)
@@ -147,6 +148,18 @@
        (version ,(lock-entry-ref entry 'version ""))
        (registry ,(lock-entry-ref entry 'registry "default"))
        ,@(status-locked-registry-source-fields manifest entry)))
+    ((akku)
+     `(dependency
+       (scope ,(lock-entry-ref entry 'scope 'runtime))
+       (type akku)
+       (name ,(lock-entry-ref entry 'name '()))
+       (version ,(lock-entry-ref entry 'version ""))
+       (source ,(lock-entry-ref entry 'source "akku"))
+       (source-url ,(lock-entry-ref entry 'source-url ""))
+       (source-kind ,(lock-entry-ref entry 'source-kind 'unknown))
+       (trust verified-index)
+       (cache ,(if (akku-source-ready? entry) 'ready 'missing))
+       (source-cache-path ,(lock-entry-ref entry 'source-cache-path ""))))
     (else
      `(dependency
        (scope ,(lock-entry-ref entry 'scope 'runtime))

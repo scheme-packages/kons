@@ -27,6 +27,9 @@
         (list 'option "registry"
           'help: "Registry alias or URL for registry dependencies, or the publish registry for versioned local dependencies."
           'value-help: "REGISTRY")
+        (list 'option "akku"
+          'help: "Add an Akku package by flat name or exact list syntax, for example '(chibi match)'."
+          'value-help: "NAME")
         (list 'flag "workspace"
           'help: "Operate on workspace members.")
         (list 'flag "plan"

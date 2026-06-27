@@ -9,6 +9,7 @@
           (kons features)
           (kons lock)
           (kons options)
+          (kons dep akku)
           (kons registry)
           (kons actions paths)
           (kons actions lock-shared)
@@ -28,8 +29,14 @@
 (define (registry-lock-entry? entry)
   (eq? (lock-entry-type entry) 'registry))
 
+(define (akku-lock-entry? entry)
+  (eq? (lock-entry-type entry) 'akku))
+
 (define (vendor-lock-entries lock)
   (filter registry-lock-entry? (lock-package-entries lock)))
+
+(define (vendor-akku-lock-entries lock)
+  (filter akku-lock-entry? (lock-package-entries lock)))
 
 (define (vendor-entry-directory-name entry)
   (safe-store-token
@@ -128,6 +135,30 @@
   (display "wrote ")
   (displayln (vendor-metadata-path root)))
 
+(define (vendor-akku-record entry)
+  `(akku-source
+    (name ,(lock-entry-ref entry 'name '()))
+    (version ,(lock-entry-ref entry 'version ""))
+    (source ,(lock-entry-ref entry 'source "akku"))
+    (source-kind ,(lock-entry-ref entry 'source-kind 'unknown))
+    (trust verified-index)
+    (cache ,(if (akku-source-ready? entry) 'ready 'missing))
+    (source-cache-path ,(lock-entry-ref entry 'source-cache-path ""))))
+
+(define (display-vendor-akku-diagnostics entries)
+  (for-each
+   (lambda (entry)
+     (display "akku ")
+     (write (lock-entry-ref entry 'name '()))
+     (display " ")
+     (display (lock-entry-ref entry 'version ""))
+     (display " ")
+     (write (lock-entry-ref entry 'source-kind 'unknown))
+     (display " ")
+     (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
+     (displayln (lock-entry-ref entry 'source-cache-path "")))
+   entries))
+
 (define (cmd-vendor cmd)
   (let* ((manifest (parse-manifest (command-manifest-path cmd)))
          (features (active-features manifest cmd))
@@ -138,7 +169,8 @@
       (if (file-exists? (command-lock-path manifest cmd))
           (lockfile-error "kons.lock is stale or belongs to another manifest; run `kons update`")
           (lockfile-error "kons.lock missing; run `kons update` first")))
-    (let ((entries (vendor-lock-entries lock)))
+    (let ((entries (vendor-lock-entries lock))
+          (akku-entries (vendor-akku-lock-entries lock)))
       (if (command-flag? cmd "plan")
           (writeln
            `(vendor-plan
@@ -146,7 +178,9 @@
              (sync ,(command-flag? cmd "sync"))
              (metadata ,(vendor-metadata-path root))
              (packages
-              ,@(map (lambda (entry) (vendor-package-record root entry)) entries))))
+              ,@(map (lambda (entry) (vendor-package-record root entry)) entries))
+             (akku-sources
+              ,@(map vendor-akku-record akku-entries))))
           (begin
             (when (command-flag? cmd "sync")
               (run-command (string-append "rm -rf " (shell-quote root))))
@@ -162,6 +196,7 @@
              entries)
             (write-expr-file (vendor-metadata-path root) (vendor-metadata root entries))
             (write-expr-file (vendor-pointer-path manifest) (vendor-pointer cmd))
-            (display-vendor-summary root (length entries)))))))
+            (display-vendor-summary root (length entries))
+            (display-vendor-akku-diagnostics akku-entries))))))
 
   ))

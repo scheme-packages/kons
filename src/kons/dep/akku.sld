@@ -118,7 +118,7 @@
     (cond
      ((file-exists? archive) archive)
      (offline?
-      (dependency-error "Akku URL source cache is missing and offline/frozen mode is active" url))
+      (dependency-error "missing offline cache for Akku URL source" url))
      ((string=? url "")
       (dependency-error "Akku URL source is missing a URL" (lock-entry-ref entry 'name '())))
      (else
@@ -182,7 +182,7 @@
                (cond
                 ((file-exists? remote) remote)
                 (offline?
-                 (dependency-error "Akku git source cache is missing and offline/frozen mode is active" remote))
+                 (dependency-error "missing offline cache for Akku git source" remote))
                 (else remote))))
           (materialize-git-checkout! repo-root (or tag revision) dest)
           (let ((actual (capture-first-line

@@ -9,8 +9,10 @@
           (kons manifest)
           (kons features)
           (kons lock)
+          (kons dep akku)
           (kons runner)
           (kons options)
+          (kons actions paths)
           (kons actions package-edit))
 
   (begin
@@ -18,9 +20,14 @@
   (let* ((manifest-path* (command-manifest-path cmd))
          (manifest (parse-manifest manifest-path*))
          (positionals (command-rest cmd))
-         (raw-name (if (pair? positionals)
-                       (car positionals)
-                       (usage-error "add requires dependency name")))
+         (akku-name (command-option cmd "akku" #f))
+         (raw-name (cond
+                    (akku-name
+                     (when (pair? positionals)
+                       (usage-error "--akku takes the Akku package name as its option value"))
+                     akku-name)
+                    ((pair? positionals) (car positionals))
+                    (else (usage-error "add requires dependency name"))))
          (dep-expr (make-add-dependency-expr raw-name cmd))
          (scope (if (command-flag? cmd "dev") 'dev 'runtime))
          (block (if (eq? scope 'dev) 'dev-dependencies 'dependencies))
@@ -43,8 +50,40 @@
            cmd
            "refreshed kons.lock after add")
           (display "added ")
+          (when (eq? dep-type 'akku)
+            (display "Akku package "))
           (display raw-name)
           (display " to ")
-          (displayln (symbol->string block))))))
+          (displayln (symbol->string block))
+          (when (eq? dep-type 'akku)
+            (display-added-akku-diagnostics
+             (read-lockfile (command-lock-path (parse-manifest manifest-path*) cmd))
+             dep-name))))))
+
+(define (matching-akku-entry? name entry)
+  (and (eq? (lock-entry-type entry) 'akku)
+       (equal? (lock-entry-ref entry 'name '()) name)))
+
+(define (find-akku-entry lock name)
+  (let loop ((entries (lock-package-entries lock)))
+    (cond
+     ((null? entries) #f)
+     ((matching-akku-entry? name (car entries)) (car entries))
+     (else (loop (cdr entries))))))
+
+(define (display-added-akku-diagnostics lock name)
+  (let ((entry (find-akku-entry lock name)))
+    (when entry
+      (display "akku ")
+      (write (lock-entry-ref entry 'name '()))
+      (display " ")
+      (display (lock-entry-ref entry 'version ""))
+      (display " ")
+      (write (lock-entry-ref entry 'source-kind 'unknown))
+      (display " verified-index ")
+      (display (lock-entry-ref entry 'source "akku"))
+      (display " ")
+      (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
+      (displayln (lock-entry-ref entry 'source-cache-path "")))))
 
   ))

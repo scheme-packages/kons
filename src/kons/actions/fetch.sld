@@ -9,6 +9,7 @@
           (kons manifest)
           (kons features)
           (kons lock)
+          (kons dep akku)
           (kons runner)
           (kons ui)
           (kons options)
@@ -95,7 +96,8 @@
                 (display "; materialized ")
                 (write (length paths))
                 (display " local source(s)"))
-              (newline)))))))
+              (newline)
+              (display-akku-fetch-diagnostics active-lock)))))))
 
 (define (akku-lock-entry? entry)
   (eq? (lock-entry-type entry) 'akku))
@@ -103,5 +105,20 @@
 (define (akku-only-lock lock)
   `(lockfile
     (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
+
+(define (display-akku-fetch-diagnostics lock)
+  (for-each
+   (lambda (entry)
+     (display "akku ")
+     (write (lock-entry-ref entry 'name '()))
+     (display " ")
+     (display (lock-entry-ref entry 'version ""))
+     (display " ")
+     (write (lock-entry-ref entry 'source-kind 'unknown))
+     (display " ")
+     (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
+     (display (lock-entry-ref entry 'source-cache-path ""))
+     (newline))
+   (filter akku-lock-entry? (lock-package-entries lock))))
 
   ))

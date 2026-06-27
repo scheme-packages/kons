@@ -22,6 +22,7 @@
           (kons lock)
           (kons options)
           (kons dep registry)
+          (kons dep akku)
           (kons actions paths)
           (kons actions lock-shared))
 
@@ -65,6 +66,13 @@
          (url ,(alist-ref dep 'url ""))
          (rev ,(alist-ref dep 'rev #f))
          (subpath ,(alist-ref dep 'subpath #f))))
+      ((akku)
+       `(dependency
+         (scope ,(alist-ref dep 'scope 'runtime))
+         (type akku)
+         (name ,(alist-ref dep 'name '()))
+         (version ,(alist-ref dep 'version "*"))
+         (source ,(alist-ref dep 'source "akku"))))
       (else
        `(dependency
          (scope ,(alist-ref dep 'scope 'runtime))
@@ -141,6 +149,20 @@
       ,@(if (pair? maybe-manifest)
             (tree-dependency-source-fields (car maybe-manifest) entry)
             '())))
+   ((eq? (lock-entry-type entry) 'akku)
+    `(dependency
+      (scope ,(lock-entry-ref entry 'scope 'runtime))
+      (type akku)
+      (name ,(lock-entry-ref entry 'name '()))
+      (resolver-name ,(lock-entry-ref entry 'resolver-name '()))
+      (req ,(lock-entry-ref entry 'req "*"))
+      (version ,(lock-entry-ref entry 'version ""))
+      (source ,(lock-entry-ref entry 'source "akku"))
+      (source-url ,(lock-entry-ref entry 'source-url ""))
+      (source-kind ,(lock-entry-ref entry 'source-kind 'unknown))
+      (trust verified-index)
+      (cache ,(if (akku-source-ready? entry) 'ready 'missing))
+      (source-cache-path ,(lock-entry-ref entry 'source-cache-path ""))))
    (else
     `(dependency
       (scope ,(lock-entry-ref entry 'scope 'runtime))
