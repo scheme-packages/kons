@@ -149,6 +149,21 @@ caches and old lockfiles no longer need offline verification:
       (key (id "2026-09-main") (file "keys/2026-09-main.pem")))))
 ```
 
+Akku package sources use a separate source alias namespace. The built-in Akku
+source alias is `akku`, pointing at `https://archive.akkuscm.org/archive/`.
+Override Akku archive sources in `$KONS_HOME/config/akku-sources.scm`; this does
+not change the Kons `default` registry alias:
+
+```scheme
+(akku-sources
+  (source
+    (name "akku")
+    (url "https://archive-mirror.example.org/archive/")))
+```
+
+Akku metadata and source payload caches are separate from Kons registry caches:
+`$KONS_HOME/store/akku/metadata` and `$KONS_HOME/store/akku/sources`.
+
 Local package:
 
 ```sh
