@@ -3,6 +3,7 @@
           git-dependency-source-root
           locked-git-entry-root
           git-checkout-ready?
+          materialize-git-checkout!
           materialize-git-dependency
           materialize-locked-git-entry
           git-lock-entry)

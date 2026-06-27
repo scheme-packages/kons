@@ -56,16 +56,27 @@
                     stored)
                    ((and stored (lock-resolution-current? manifest features cmd stored)) stored)
                    (else new-lock))))
-            (when (and (not locked?) (not offline?) (not (equal? stored active-lock)))
-              (ui-status "writing lockfile" lock-path)
-              (write-expr-file lock-path active-lock)
-              (log-info (if stored
+          (when (and (not locked?) (not offline?) (not (equal? stored active-lock)))
+            (ui-status "writing lockfile" lock-path)
+            (write-expr-file lock-path active-lock)
+            (log-info (if stored
                             "updated kons.lock for fetch"
                             "created kons.lock for fetch"))
               (ui-status-done "wrote lockfile" lock-path))
-            (let ((paths (if (or offline? locked?)
-                             (fetch-lock-with-progress manifest active-lock #t offline? cmd)
-                             (fetch-with-progress manifest features #t #f cmd))))
+            (let ((paths
+                   (cond
+                    ((or offline? locked?)
+                     (fetch-lock-with-progress manifest active-lock #t offline? cmd))
+                    (active-lock
+                     (append
+                      (fetch-with-progress manifest features #t #f cmd)
+                      (fetch-lock-with-progress manifest
+                                                (akku-only-lock active-lock)
+                                                #t
+                                                #f
+                                                cmd)))
+                    (else
+                     (fetch-with-progress manifest features #t #f cmd)))))
               (ui-status "preparing dependency build hooks")
               (run-dependency-build-hooks-if-needed! manifest #t features cmd)
               (ui-status-done "prepared dependency build hooks")
@@ -85,5 +96,12 @@
                 (write (length paths))
                 (display " local source(s)"))
               (newline)))))))
+
+(define (akku-lock-entry? entry)
+  (eq? (lock-entry-type entry) 'akku))
+
+(define (akku-only-lock lock)
+  `(lockfile
+    (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
 
   ))

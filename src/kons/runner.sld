@@ -45,6 +45,7 @@
           (kons dep git)
           (kons dep path)
           (kons dep registry)
+          (kons dep akku)
           (kons dep workspace)
           (kons actions paths))
 
@@ -156,6 +157,7 @@
     ((workspace) (locked-workspace-entry-root entry))
     ((git) (locked-git-entry-root entry))
     ((registry) (apply locked-registry-entry-root entry maybe-manifest))
+    ((akku) (locked-akku-entry-root entry))
     (else #f)))
 
 (define (locked-entry-source-root entry . maybe-manifest)
@@ -173,6 +175,7 @@
   (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
     (case (lock-entry-type entry)
       ((git) (and root (git-checkout-ready? root (lock-entry-ref entry 'commit ""))))
+      ((akku) (akku-source-ready? entry))
       (else
        (or (not root)
            (file-exists? root))))))
@@ -191,6 +194,9 @@
      ((and (eq? (lock-entry-type entry) 'git)
            (not (git-checkout-ready? root (lock-entry-ref entry 'commit ""))))
       (make-missing-materialization entry root 'git-checkout-not-ready #f))
+     ((and (eq? (lock-entry-type entry) 'akku)
+           (not (akku-source-ready? entry)))
+      (make-missing-materialization entry root 'akku-source-not-ready #f))
      ((not (file-exists? root))
       (make-missing-materialization
        entry
@@ -217,7 +223,7 @@
          (archive (missing-materialization-archive missing)))
     `((reason . missing-materialization)
       (type . ,(lock-entry-type entry))
-      (name . ,(name->string (lock-entry-ref entry 'name '())))
+      (name . ,(value-token (lock-entry-ref entry 'name '())))
       (scope . ,(lock-entry-ref entry 'scope 'runtime))
       (root . ,(missing-materialization-root missing))
       (cause . ,(missing-materialization-reason missing))
@@ -617,7 +623,7 @@
      (if type (symbol->string type) "dependency")
      " "
      (cond
-      ((lock-entry-ref entry 'name #f) (name->string (lock-entry-ref entry 'name '())))
+      ((lock-entry-ref entry 'name #f) (value-token (lock-entry-ref entry 'name '())))
       ((lock-entry-ref entry 'names #f) (string-join (map symbol->string (lock-entry-ref entry 'names '())) " "))
       (else "")))))
 
@@ -679,12 +685,13 @@
            ((path) (materialize-locked-path-entry manifest entry))
            ((git) (materialize-locked-git-entry manifest entry offline?))
            ((registry) (materialize-locked-registry-entry manifest entry offline?))
+           ((akku) (materialize-locked-akku-entry manifest entry offline?))
            (else (dependency-error "unsupported materializable locked dependency" type)))))))
 
 (define (materialize-lock-sources manifest lock include-dev? offline? . maybe-cmd)
   (let ((entries (filter (lambda (entry)
                            (and (locked-entry-in-scope? entry include-dev?)
-                                (memq (lock-entry-type entry) '(path git registry))))
+                                (memq (lock-entry-type entry) '(path git registry akku))))
                          (lock-package-entries lock)))
         (cmd (and (pair? maybe-cmd) (car maybe-cmd))))
     (if (null? entries)

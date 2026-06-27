@@ -131,7 +131,7 @@
              (else
               (write-expr-file lock-path new-lock)
               (log-info "updated kons.lock for activation")
-              (materialize-local-sources manifest features include-dev? #f cmd)))))
+              (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd)))))
          ((command-locked-mode? cmd)
           (stale-lockfile-error manifest features cmd stored include-dev?))
          (offline?
@@ -140,14 +140,26 @@
           (let ((new-lock (make-lock manifest features cmd include-dev?)))
             (write-expr-file lock-path new-lock)
             (log-info "updated kons.lock for activation")
-            (materialize-local-sources manifest features include-dev? #f cmd))))))
+            (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd))))))
      ((or (command-locked-mode? cmd) offline?)
      (lockfile-error "kons.lock missing; run `kons update` first"))
      (else
       (let ((new-lock (make-lock manifest features cmd include-dev?)))
         (write-expr-file lock-path new-lock)
         (log-info "created kons.lock for activation")
-        (materialize-local-sources manifest features include-dev? #f cmd))))))
+        (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd))))))
+
+(define (akku-lock-entry? entry)
+  (eq? (lock-entry-type entry) 'akku))
+
+(define (akku-only-lock lock)
+  `(lockfile
+    (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
+
+(define (materialize-live-and-akku-lock-sources manifest features include-dev? lock cmd)
+  (append
+   (materialize-local-sources manifest features include-dev? #f cmd)
+   (materialize-lock-sources manifest (akku-only-lock lock) include-dev? #f cmd)))
 
 (define (build-token manifest features profile)
   (safe-store-token

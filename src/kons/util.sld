@@ -450,7 +450,9 @@
 	(define (shell-command-status cmd)
 	  (let* ((tmp (next-temporary-path "kons-status"))
 	         (wrapper (string-append "( " cmd " ); printf '%s\\n' $? > " (shell-quote tmp))))
-	    (shell-command wrapper)
+	    (cond-expand
+	      (chibi (process-output+error+status (list "sh" "-c" wrapper)))
+	      (else (shell-command wrapper)))
 	    (let ((status (string->number (call-with-input-file tmp read-line))))
 	      (delete-file-if-exists tmp)
 	      (if status status 1))))
