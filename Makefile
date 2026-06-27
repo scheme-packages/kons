@@ -42,12 +42,14 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/diagnostics.scm
 	$(RUN_TEST) tests/akku-config.scm
 	$(RUN_TEST) tests/lock.scm
+	$(RUN_TEST) tests/akku-lock.scm
 	$(RUN_TEST) tests/features.scm
 	$(RUN_TEST) tests/dev-dependencies.scm
 	$(RUN_TEST) tests/publish.scm
 	$(RUN_TEST) tests/source-replacement.scm
 	$(RUN_TEST) tests/workspace.scm
 	$(RUN_TEST) tests/akku-registry.scm
+	$(RUN_TEST) tests/akku-resolver.scm
 	$(RUN_TEST) tests/resolver.scm
 	$(RUN_TEST) tests/graph.scm
 	$(RUN_TEST) tests/json-output.scm

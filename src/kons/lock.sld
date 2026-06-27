@@ -16,6 +16,7 @@
           lock-entry-ref
           make-lock)
   (import (scheme base)
+          (scheme cxr)
           (kons util)
           (kons names)
           (kons implementation)
@@ -24,6 +25,7 @@
           (kons options)
           (kons registry)
           (kons resolver)
+          (kons akku lock)
           (kons dep shared)
           (kons dep git)
           (kons dep path)
@@ -146,12 +148,20 @@
 (define (registry-dependency? dep)
   (eq? (alist-ref dep 'type #f) 'registry))
 
+(define (akku-dependency? dep)
+  (eq? (alist-ref dep 'type #f) 'akku))
+
 (define (selected-registry-dependency? dep)
   (and (registry-dependency? dep)
        (not (alist-ref dep 'optional #f))))
 
-(define (non-registry-dependency? dep)
-  (not (registry-dependency? dep)))
+(define (selected-akku-dependency? dep)
+  (and (akku-dependency? dep)
+       (not (alist-ref dep 'optional #f))))
+
+(define (direct-lock-dependency? dep)
+  (and (not (registry-dependency? dep))
+       (not (akku-dependency? dep))))
 
 (define (registry-requirement dep)
   (append
@@ -370,21 +380,33 @@
          (preferred-refs (if (command-flag? cmd "upgrade")
                              '()
                              (locked-registry-refs previous-lock)))
+         (preferred-akku-refs (if (command-flag? cmd "upgrade")
+                                  '()
+                                  (locked-akku-refs previous-lock)))
          (registry-data (registry-resolution-lock-data
                          (filter selected-registry-dependency? deps)
                          offline?
                          preferred-refs
                          manifest
                          cmd))
+         (akku-data (akku-resolution-lock-data
+                     (filter selected-akku-dependency? deps)
+                     offline?
+                     preferred-akku-refs
+                     manifest
+                     cmd))
          (registry-entries (car registry-data))
          (registry-edges (cdr registry-data))
+         (akku-entries (car akku-data))
+         (akku-edges (cdr akku-data))
          (package-entries
           (sort-lock-entries
            (dedupe-lock-entries
             (append
              (map (lambda (dep) (dependency-lock-entry manifest dep))
-                  (filter non-registry-dependency? deps))
-             registry-entries))))
+                  (filter direct-lock-dependency? deps))
+             registry-entries
+             akku-entries))))
         (override-entries
          (sort-lock-entries
           (map (lambda (dep) (dependency-lock-entry manifest dep))
@@ -403,7 +425,8 @@
       (packages
        ,@package-entries)
       (edges
-       ,@registry-edges)
+       ,@registry-edges
+       ,@akku-edges)
       (overrides
        ,@override-entries))))
   ))

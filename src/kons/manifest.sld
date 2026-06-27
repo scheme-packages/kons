@@ -40,7 +40,8 @@
           manifest-source-root)
   (import (scheme base)
           (scheme file)
-          (kons util))
+          (kons util)
+          (kons akku manifest))
 
   (begin
 (define current-manifest-path #f)
@@ -492,6 +493,12 @@
             (features . ,features)
             (optional . ,optional))
           selectors))))
+    ((akku)
+     (parse-akku-dependency
+      form
+      scope
+      (source-context 'akku-dependency)
+      dependency-selectors))
     (else (manifest-error "unknown dependency type" (car form)))))
 
 (define (dependency-publish-metadata fields form)
