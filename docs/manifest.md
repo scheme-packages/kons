@@ -95,6 +95,28 @@ with dependency edges. A plain `kons update` keeps locked registry versions when
 they still satisfy all constraints; `kons update --upgrade` selects newer
 compatible versions.
 
+Akku package dependency:
+
+```scheme
+(dependencies
+  (akku (name "srfi-1")
+        (version "^1.0")
+        (source "akku")))
+```
+
+List-shaped Akku names use Scheme list syntax and round-trip as lists:
+
+```scheme
+(dependencies
+  (akku (name (chibi match))
+        (version "0.7.0")))
+```
+
+The `source` field is an Akku source alias, not a Kons registry alias. It
+defaults to `"akku"`, which resolves through `$KONS_HOME/config/akku-sources.scm`.
+Akku versions are SemVer requirements. Kons can resolve and fetch Akku packages,
+but it does not publish packages to the Akku registry.
+
 Path dependency:
 
 ```scheme
@@ -131,6 +153,7 @@ Dependency kinds:
 | Kind | Use it when |
 | --- | --- |
 | `registry` | Package comes from a Kons registry. |
+| `akku` | Package comes from a verified Akku archive index. |
 | `path` | Package is in a local directory. |
 | `git` | Package is in a Git repo. |
 | `workspace` | Package is another member of same workspace. |
@@ -174,6 +197,9 @@ You can edit `kons.scm` with commands instead of typing by hand:
 ```sh
 kons add example/base --version ^1.2
 kons add example/base --version ^1.2 --registry local
+kons add --akku srfi-1 --version ^1.0
+kons add --akku '(chibi match)' --version 0.7.0
+kons add --akku srfi-1 --registry akku
 kons add local/lib --path ../lib
 kons add remote/lib --git https://example.invalid/lib.git --rev main
 kons add scheme/base --system

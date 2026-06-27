@@ -22,7 +22,7 @@ ARGS_SRCDIR = vendor/scm-args/src
 CONDUIT_SRCDIR = vendor/conduit/src
 VENDOR_SRCDIRS = $(ARGS_SRCDIR),$(CONDUIT_SRCDIR)
 VENDOR_SUBMODULES = vendor/scm-args vendor/conduit
-.PHONY: check check-all check-required clean-test-cache unit-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
+.PHONY: check check-all check-required clean-test-cache unit-tests akku-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
 
 check: unit-tests verify-capy install-verify install-script-verify
 
@@ -59,6 +59,15 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/archive-scan.scm
 	$(RUN_TEST) tests/license-scan.scm
 	$(RUN_TEST) tests/compat-scan.scm
+
+akku-tests: clean-test-cache
+	$(CAPY) -L src -s tests/akku-format.scm
+	$(RUN_TEST) tests/akku-config.scm
+	$(RUN_TEST) tests/akku-registry.scm
+	$(RUN_TEST) tests/akku-resolver.scm
+	$(RUN_TEST) tests/akku-lock.scm
+	$(RUN_TEST) tests/akku-materialization.scm
+	$(RUN_TEST) tests/akku-cli.scm
 
 ci-unit: unit-tests
 

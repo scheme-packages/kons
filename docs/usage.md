@@ -164,6 +164,30 @@ not change the Kons `default` registry alias:
 Akku metadata and source payload caches are separate from Kons registry caches:
 `$KONS_HOME/store/akku/metadata` and `$KONS_HOME/store/akku/sources`.
 
+Add Akku packages with `--akku`:
+
+```sh
+kons add --akku srfi-1 --version ^1.0
+kons add --akku '(chibi match)' --version 0.7.0
+kons add --akku srfi-1 --registry akku
+```
+
+Flat Akku names are strings in `kons.scm`; list-shaped names are exact Scheme
+lists. Slash syntax such as `chibi/match` is rejected for Akku packages because
+it would not round-trip to a single Akku package name. With `--akku`,
+`--registry` selects the Akku source alias and writes `(source "...")`.
+
+Akku archive indexes are verified with trusted OpenPGP keyrings from
+`$KONS_HOME/config/akku/keys.d`. Offline and frozen commands use only a
+previously verified index cache. Source payloads are then materialized from the
+locked source metadata: URL tarballs are checked against the locked SHA-256
+before extraction, Git sources are checked out to the locked revision, and
+directory sources are copied only from safe paths. Command output uses
+`verified-index` for the signed index metadata and `cache-ready`/`cache-missing`
+or `(cache ready|missing)` for source payload materialization.
+
+Kons can consume Akku packages, but it does not publish to the Akku registry.
+
 Local package:
 
 ```sh
@@ -251,6 +275,8 @@ This writes the locked registry package sources, a vendor metadata file, and a
 root `kons-vendor.scm` source-replacement pointer. Locked registry dependencies
 are loaded from the vendor tree before the global registry store, so the vendor
 directory and pointer can be checked into a repository for frozen/offline builds.
+Akku sources are reported by `kons vendor --plan` and vendor diagnostics, but
+Akku source materialization stays in `$KONS_HOME/store/akku/sources`.
 
 You can also configure source replacement outside the project pointer. Put this
 in `$KONS_HOME/config/source-replacements.scm` to map a registry alias to a
@@ -587,7 +613,7 @@ thread support. Capy, Gauche, and Guile can do parallel jobs today.
 | `update` | Resolve dependencies and write `kons.lock`. |
 | `fetch` | Download dependencies. |
 | `verify` | Verify the lockfile, materialized sources, and cached archives. |
-| `vendor` | Copy locked registry dependencies into a vendor directory. |
+| `vendor` | Copy locked registry dependencies into a vendor directory and report locked Akku sources. |
 | `run` | Run main program, script, or bin. |
 | `repl` | Start Scheme REPL with project paths. |
 | `check` | Check manifest and dependency setup. |

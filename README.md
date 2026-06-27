@@ -90,6 +90,8 @@ variant.
 
 ```sh
 kons add example/base --version ^1.2
+kons add --akku srfi-1 --version ^1.0
+kons add --akku '(chibi match)' --version 0.7.0
 kons add local/lib --path ../lib
 kons add remote/lib --git https://example.invalid/lib.git --rev main
 kons add scheme/base --system
@@ -116,6 +118,13 @@ If a registry signs metadata, pin its public key in
 config. During key rotation, use `(keys (key ...))` to trust both the old and
 new public keys until old metadata caches and lockfiles no longer need offline
 verification.
+
+Akku package sources are configured separately in
+`$KONS_HOME/config/akku-sources.scm`. Kons verifies Akku archive indexes with
+trusted OpenPGP keyrings, locks source metadata, verifies URL tarball SHA-256
+checksums before extraction, and materializes Akku sources under
+`$KONS_HOME/store/akku/sources`. Kons consumes Akku packages; publishing remains
+for Kons registries only.
 
 ## Publish
 
