@@ -4,6 +4,7 @@ GUILE ?= guile
 CHIBI ?= chibi-scheme
 CHEZ ?= scheme
 PODMAN ?= podman
+SCHEMAT ?= schemat
 PREFIX ?= $(HOME)/.kons
 KONS_HOME ?= $(PREFIX)
 bindir ?= $(KONS_HOME)/bin
@@ -22,7 +23,10 @@ ARGS_SRCDIR = vendor/scm-args/src
 CONDUIT_SRCDIR = vendor/conduit/src
 VENDOR_SRCDIRS = $(ARGS_SRCDIR),$(CONDUIT_SRCDIR)
 VENDOR_SUBMODULES = vendor/scm-args vendor/conduit
-.PHONY: check check-all check-required clean-test-cache unit-tests akku-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
+.PHONY: fmt check check-all check-required clean-test-cache unit-tests akku-tests integration-tests self-verify verify verify-capy ci-unit ci-manager-install ci-runtime-r7rs ci-runtime-r6rs ci-podman-local podman-runtime-sagittarius podman-runtime-stklos podman-runtime-kawa podman-runtime-loko podman-runtime-skint podman-runtime-cyclone podman-runtime-mosh podman-runtime-chez podman-runtime-ironscheme install uninstall install-verify install-script-verify clean
+
+fmt:
+	$(SCHEMAT) '**/*.scm' '**/*.sld' '**/*.sls'
 
 check: unit-tests verify-capy install-verify install-script-verify
 

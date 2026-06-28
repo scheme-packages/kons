@@ -3,26 +3,25 @@
   (import (scheme base))
 
   (begin
-(define sagittarius-implementation-modes
-  '(((id . sagittarius)
-     (implementation . sagittarius)
-     (command . "sash")
-     (version-argv . ("--version"))
-     (dialects . (r7rs r6rs))
-     (load-path-style . prepend-append)
-     (load-path-flag . "-L")
-     (append-load-path-flag . "-A")
-     (env-load-path . "SAGITTARIUS_LOADPATH")
-     (env-load-path-scope . prepend)
-     (compile-kinds . ())
-     (dialect-options
-      (r7rs
-       (standard . r7rs)
-       (standard-argv . ("-r7"))
-       (features . (sagittarius r7rs)))
-      (r6rs
-       (id . sagittarius-r6rs)
-       (standard . r6rs)
-       (standard-argv . ("-r6"))
-       (features . (sagittarius r6rs)))))))
-  ))
+    (define sagittarius-implementation-modes
+      '(((id . sagittarius)
+         (implementation . sagittarius)
+         (command . "sash")
+         (version-argv . ("--version"))
+         (dialects . (r7rs r6rs))
+         (load-path-style . prepend-append)
+         (load-path-flag . "-L")
+         (append-load-path-flag . "-A")
+         (env-load-path . "SAGITTARIUS_LOADPATH")
+         (env-load-path-scope . prepend)
+         (compile-kinds . ())
+         (dialect-options
+          (r7rs
+           (standard . r7rs)
+           (standard-argv . ("-r7"))
+           (features . (sagittarius r7rs)))
+          (r6rs
+           (id . sagittarius-r6rs)
+           (standard . r6rs)
+           (standard-argv . ("-r6"))
+           (features . (sagittarius r6rs)))))))))

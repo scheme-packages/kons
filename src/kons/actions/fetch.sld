@@ -1,124 +1,122 @@
 (define-library (kons actions fetch)
   (export cmd-fetch)
   (import (scheme base)
-          (scheme file)
-          (scheme process-context)
-          (scheme write)
-          (kons util)
-          (kons implementation)
-          (kons manifest)
-          (kons features)
-          (kons lock)
-          (kons dep akku)
-          (kons runner)
-          (kons ui)
-          (kons options)
-          (kons actions paths)
-          (kons actions lock-shared)
-          (kons actions activation)
-          (kons actions status-shared))
+    (scheme file)
+    (scheme process-context)
+    (scheme write)
+    (kons util)
+    (kons implementation)
+    (kons manifest)
+    (kons features)
+    (kons lock)
+    (kons dep akku)
+    (kons runner)
+    (kons ui)
+    (kons options)
+    (kons actions paths)
+    (kons actions lock-shared)
+    (kons actions activation)
+    (kons actions status-shared))
 
   (begin
-(define (cmd-fetch cmd)
-  (let* ((manifest (parse-manifest (command-manifest-path cmd)))
-         (features (active-features manifest cmd))
-         (lock-path (command-lock-path manifest cmd)))
-    (ensure-supported-active-features manifest features cmd)
-    (when (and (command-flag? cmd "frozen")
+    (define (cmd-fetch cmd)
+      (let* ((manifest (parse-manifest (command-manifest-path cmd)))
+             (features (active-features manifest cmd))
+             (lock-path (command-lock-path manifest cmd)))
+        (ensure-supported-active-features manifest features cmd)
+        (when (and (command-flag? cmd "frozen")
                (not (command-flag? cmd "plan"))
                (not (file-exists? lock-path)))
-      (lockfile-error "frozen fetch requires an existing kons.lock"))
-    (if (command-flag? cmd "plan")
-        (writeln (fetch-plan-form manifest features cmd))
-        (let* ((offline? (or (command-flag? cmd "offline")
-                             (command-flag? cmd "frozen")))
-               (locked? (command-locked-mode? cmd))
-               (stored (and (file-exists? lock-path)
-                            (let ((stored-exprs (read-all-exprs lock-path)))
-                              (if (null? stored-exprs) #f (car stored-exprs))))))
-          (when (and (file-exists? lock-path) (not stored))
-            (lockfile-error "lockfile is empty" lock-path))
-          (when (and (not stored) (or locked? offline?))
-            (lockfile-error "kons.lock missing; run `kons update` first"))
-          (let* ((new-lock (and (not offline?)
-                                (not locked?)
-                                (make-lock manifest features cmd #t stored)))
-                 (active-lock
-                  (cond
-                   ((not stored) new-lock)
-                   (offline?
-                    (unless (lock-root-matches? manifest features cmd stored)
-                      (stale-lockfile-error manifest features cmd stored #t))
-                    (ensure-lock-covers-direct-dependencies manifest features cmd stored)
-                    stored)
-                   (locked?
-                    (unless (lock-resolution-current? manifest features cmd stored)
-                      (stale-lockfile-error manifest features cmd stored #t))
-                    stored)
-                   ((and stored (lock-resolution-current? manifest features cmd stored)) stored)
-                   (else new-lock))))
-          (when (and (not locked?) (not offline?) (not (equal? stored active-lock)))
-            (ui-status "writing lockfile" lock-path)
-            (write-expr-file lock-path active-lock)
-            (log-info (if stored
-                            "updated kons.lock for fetch"
-                            "created kons.lock for fetch"))
-              (ui-status-done "wrote lockfile" lock-path))
-            (let ((paths
-                   (cond
-                    ((or offline? locked?)
-                     (fetch-lock-with-progress manifest active-lock #t offline? cmd))
-                    (active-lock
-                     (append
-                      (fetch-with-progress manifest features #t #f cmd)
-                      (fetch-lock-with-progress manifest
-                                                (akku-only-lock active-lock)
-                                                #t
-                                                #f
-                                                cmd)))
-                    (else
-                     (fetch-with-progress manifest features #t #f cmd)))))
-              (ui-status "preparing dependency build hooks")
-              (run-dependency-build-hooks-if-needed! manifest #t features cmd)
-              (ui-status-done "prepared dependency build hooks")
-              (ui-status "preparing root build hooks")
-              (run-build-hooks-if-needed! manifest features cmd)
-              (ui-status-done "prepared root build hooks")
-              (ensure-implementation-compiled! manifest features cmd)
-              (check-system-dependencies
-               manifest
-               cmd
-               #t
-               features
-               (activation-source-roots-with-build manifest #t features cmd))
-              (display "fetch: lockfile verified")
-              (unless (null? paths)
-                (display "; materialized ")
-                (write (length paths))
-                (display " local source(s)"))
-              (newline)
-              (display-akku-fetch-diagnostics active-lock)))))))
+          (lockfile-error "frozen fetch requires an existing kons.lock"))
+        (if (command-flag? cmd "plan")
+          (writeln (fetch-plan-form manifest features cmd))
+          (let* ((offline? (or (command-flag? cmd "offline")
+                            (command-flag? cmd "frozen")))
+                 (locked? (command-locked-mode? cmd))
+                 (stored (and (file-exists? lock-path)
+                          (let ((stored-exprs (read-all-exprs lock-path)))
+                            (if (null? stored-exprs) #f (car stored-exprs))))))
+            (when (and (file-exists? lock-path) (not stored))
+              (lockfile-error "lockfile is empty" lock-path))
+            (when (and (not stored) (or locked? offline?))
+              (lockfile-error "kons.lock missing; run `kons update` first"))
+            (let* ((new-lock (and (not offline?)
+                              (not locked?)
+                              (make-lock manifest features cmd #t stored)))
+                   (active-lock
+                     (cond
+                       ((not stored) new-lock)
+                       (offline?
+                         (unless (lock-root-matches? manifest features cmd stored)
+                           (stale-lockfile-error manifest features cmd stored #t))
+                         (ensure-lock-covers-direct-dependencies manifest features cmd stored)
+                         stored)
+                       (locked?
+                         (unless (lock-resolution-current? manifest features cmd stored)
+                           (stale-lockfile-error manifest features cmd stored #t))
+                         stored)
+                       ((and stored (lock-resolution-current? manifest features cmd stored)) stored)
+                       (else new-lock))))
+              (when (and (not locked?) (not offline?) (not (equal? stored active-lock)))
+                (ui-status "writing lockfile" lock-path)
+                (write-expr-file lock-path active-lock)
+                (log-info (if stored
+                           "updated kons.lock for fetch"
+                           "created kons.lock for fetch"))
+                (ui-status-done "wrote lockfile" lock-path))
+              (let ((paths
+                      (cond
+                        ((or offline? locked?)
+                          (fetch-lock-with-progress manifest active-lock #t offline? cmd))
+                        (active-lock
+                          (append
+                            (fetch-with-progress manifest features #t #f cmd)
+                            (fetch-lock-with-progress manifest
+                              (akku-only-lock active-lock)
+                              #t
+                              #f
+                              cmd)))
+                        (else
+                          (fetch-with-progress manifest features #t #f cmd)))))
+                (ui-status "preparing dependency build hooks")
+                (run-dependency-build-hooks-if-needed! manifest #t features cmd)
+                (ui-status-done "prepared dependency build hooks")
+                (ui-status "preparing root build hooks")
+                (run-build-hooks-if-needed! manifest features cmd)
+                (ui-status-done "prepared root build hooks")
+                (ensure-implementation-compiled! manifest features cmd)
+                (check-system-dependencies
+                  manifest
+                  cmd
+                  #t
+                  features
+                  (activation-source-roots-with-build manifest #t features cmd))
+                (display "fetch: lockfile verified")
+                (unless (null? paths)
+                  (display "; materialized ")
+                  (write (length paths))
+                  (display " local source(s)"))
+                (newline)
+                (display-akku-fetch-diagnostics active-lock)))))))
 
-(define (akku-lock-entry? entry)
-  (eq? (lock-entry-type entry) 'akku))
+    (define (akku-lock-entry? entry)
+      (eq? (lock-entry-type entry) 'akku))
 
-(define (akku-only-lock lock)
-  `(lockfile
-    (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
+    (define (akku-only-lock lock)
+      `(lockfile
+        (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
 
-(define (display-akku-fetch-diagnostics lock)
-  (for-each
-   (lambda (entry)
-     (display "akku ")
-     (write (lock-entry-ref entry 'name '()))
-     (display " ")
-     (display (lock-entry-ref entry 'version ""))
-     (display " ")
-     (write (lock-entry-ref entry 'source-kind 'unknown))
-     (display " ")
-     (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
-     (display (lock-entry-ref entry 'source-cache-path ""))
-     (newline))
-   (filter akku-lock-entry? (lock-package-entries lock))))
-
-  ))
+    (define (display-akku-fetch-diagnostics lock)
+      (for-each
+        (lambda (entry)
+          (display "akku ")
+          (write (lock-entry-ref entry 'name '()))
+          (display " ")
+          (display (lock-entry-ref entry 'version ""))
+          (display " ")
+          (write (lock-entry-ref entry 'source-kind 'unknown))
+          (display " ")
+          (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
+          (display (lock-entry-ref entry 'source-cache-path ""))
+          (newline))
+        (filter akku-lock-entry? (lock-package-entries lock))))))
