@@ -10,6 +10,7 @@
     (kons features)
     (kons lock)
     (kons dep akku)
+    (kons dep snow)
     (kons runner)
     (kons ui)
     (kons options)
@@ -72,7 +73,7 @@
                           (append
                             (fetch-with-progress manifest features #t #f cmd)
                             (fetch-lock-with-progress manifest
-                              (akku-only-lock active-lock)
+                              (external-only-lock active-lock)
                               #t
                               #f
                               cmd)))
@@ -97,14 +98,20 @@
                   (write (length paths))
                   (display " local source(s)"))
                 (newline)
-                (display-akku-fetch-diagnostics active-lock)))))))
+                (display-external-fetch-diagnostics active-lock)))))))
 
     (define (akku-lock-entry? entry)
       (eq? (lock-entry-type entry) 'akku))
 
-    (define (akku-only-lock lock)
+    (define (snow-lock-entry? entry)
+      (eq? (lock-entry-type entry) 'snow))
+
+    (define (external-lock-entry? entry)
+      (or (akku-lock-entry? entry) (snow-lock-entry? entry)))
+
+    (define (external-only-lock lock)
       `(lockfile
-        (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
+        (packages ,@(filter external-lock-entry? (lock-package-entries lock)))))
 
     (define (display-akku-fetch-diagnostics lock)
       (for-each
@@ -119,4 +126,23 @@
           (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
           (display (lock-entry-ref entry 'source-cache-path ""))
           (newline))
-        (filter akku-lock-entry? (lock-package-entries lock))))))
+        (filter akku-lock-entry? (lock-package-entries lock))))
+
+    (define (display-snow-fetch-diagnostics lock)
+      (for-each
+        (lambda (entry)
+          (display "snow ")
+          (write (lock-entry-ref entry 'name '()))
+          (display " ")
+          (display (lock-entry-ref entry 'version ""))
+          (display " repository ")
+          (display (lock-entry-ref entry 'source "snow"))
+          (display " ")
+          (display (if (snow-source-ready? entry) "cache-ready " "cache-missing "))
+          (display (lock-entry-ref entry 'source-cache-path ""))
+          (newline))
+        (filter snow-lock-entry? (lock-package-entries lock))))
+
+    (define (display-external-fetch-diagnostics lock)
+      (display-akku-fetch-diagnostics lock)
+      (display-snow-fetch-diagnostics lock))))

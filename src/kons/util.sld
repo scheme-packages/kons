@@ -25,6 +25,7 @@
     kons-auth-path
     kons-store-root
     shell-quote
+    string-prefix?
     string-suffix?
     dirname
     path-join

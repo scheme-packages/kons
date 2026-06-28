@@ -376,7 +376,7 @@
               (loop (cdr items)))))))
 
     (define akku-ambiguous-name-message
-      "ambiguous Akku package name syntax; use a flat NAME or exact list syntax like '(chibi match)'")
+      "ambiguous Akku package name syntax; use a flat NAME, slash path like chibi/match, or exact list syntax like '(chibi match)'")
 
     (define (read-exact-akku-list-name raw-name)
       (guard (exn
@@ -398,8 +398,34 @@
           ((string-starts-with? "(" trimmed)
             (read-exact-akku-list-name trimmed))
           ((string-contains? trimmed "/")
-            (usage-error akku-ambiguous-name-message raw-name))
+            (name-parts-from-cli trimmed))
           (else trimmed))))
+
+    (define snow-ambiguous-name-message
+      "ambiguous Snow package name syntax; use a slash path like chibi/match or exact list syntax like '(chibi match)'")
+
+    (define (read-exact-snow-list-name raw-name)
+      (guard (exn
+              ((error-object? exn)
+                (usage-error snow-ambiguous-name-message raw-name)))
+        (let* ((port (open-input-string raw-name))
+               (datum (read port))
+               (extra (read port)))
+          (unless (and (akku-name-list? datum)
+                   (eof-object? extra))
+            (usage-error snow-ambiguous-name-message raw-name))
+          datum)))
+
+    (define (snow-name-from-cli raw-name)
+      (let ((trimmed (trim-left raw-name)))
+        (cond
+          ((string=? trimmed "")
+            (usage-error "Snow package name must not be empty"))
+          ((string-starts-with? "(" trimmed)
+            (read-exact-snow-list-name trimmed))
+          ((string-contains? trimmed "/")
+            (name-parts-from-cli trimmed))
+          (else (list (string->symbol trimmed))))))
 
     (define (dependency-name=? dep name)
       (equal? (alist-ref dep 'name '()) name))
@@ -420,7 +446,11 @@
 
     (define (make-add-dependency-expr raw-name cmd)
       (let* ((akku (command-option cmd "akku" #f))
-             (name (if akku (akku-name-from-cli raw-name) (name-parts-from-cli raw-name)))
+             (snow (command-option cmd "snow" #f))
+             (name (cond
+                    (akku (akku-name-from-cli raw-name))
+                    (snow (snow-name-from-cli raw-name))
+                    (else (name-parts-from-cli raw-name))))
              (path (command-option cmd "path" #f))
              (git (command-option cmd "git" #f))
              (rev (command-option cmd "rev" #f))
@@ -429,10 +459,10 @@
              (raw? (command-flag? cmd "raw"))
              (version (command-option cmd "version" #f))
              (registry (command-option cmd "registry" #f))
-             (source-count (+ (if path 1 0) (if git 1 0) (if system? 1 0) (if akku 1 0))))
+             (source-count (+ (if path 1 0) (if git 1 0) (if system? 1 0) (if akku 1 0) (if snow 1 0))))
         (when (> source-count 1)
           (usage-error "choose only one dependency source" raw-name))
-        (when (and (> source-count 0) registry (not version) (not akku))
+        (when (and (> source-count 0) registry (not version) (not akku) (not snow))
           (usage-error "--registry on a local dependency requires --version" raw-name))
         (when (and raw? (not path))
           (usage-error "--raw is only valid with --path" raw-name))
@@ -454,6 +484,9 @@
             `(system ,name))
           (akku
             (append `(akku (name ,name) (version ,(if version version "*")))
+              (if registry `((source ,registry)) '())))
+          (snow
+            (append `(snow (name ,name) (version ,(if version version "*")))
               (if registry `((source ,registry)) '())))
           (else
             (append `(registry (name ,name) (version ,(if version version "*")))

@@ -188,6 +188,21 @@ or `(cache ready|missing)` for source payload materialization.
 
 Kons can consume Akku packages, but it does not publish to the Akku registry.
 
+Snow packages use Scheme list names and default to the public snow-fort
+repository at `https://snow-fort.org/s/repo.scm`. Add them with `--snow`:
+
+```sh
+kons add --snow retropikzel/system --version ^1.0
+kons add --snow '(chibi match)' --version 0.7.0
+kons add --snow retropikzel/system --registry https://snow-fort.org/s/repo.scm
+```
+
+With `--snow`, `--registry` selects the Snow repository URL or local repository
+file and writes `(source "...")`. Snow repository metadata is cached under
+`$KONS_HOME/store/snow/metadata`; snowballs are checksum-verified and extracted
+under `$KONS_HOME/store/snow/sources`. Offline and frozen commands use those
+caches. Kons consumes Snow packages, but it does not publish to Snow.
+
 Local package:
 
 ```sh

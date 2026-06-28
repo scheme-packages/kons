@@ -151,17 +151,17 @@
               (log-info "created kons.lock for activation")
               (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd))))))
 
-    (define (akku-lock-entry? entry)
-      (eq? (lock-entry-type entry) 'akku))
+    (define (external-lock-entry? entry)
+      (memq (lock-entry-type entry) '(akku snow)))
 
-    (define (akku-only-lock lock)
+    (define (external-only-lock lock)
       `(lockfile
-        (packages ,@(filter akku-lock-entry? (lock-package-entries lock)))))
+        (packages ,@(filter external-lock-entry? (lock-package-entries lock)))))
 
     (define (materialize-live-and-akku-lock-sources manifest features include-dev? lock cmd)
       (append
         (materialize-local-sources manifest features include-dev? #f cmd)
-        (materialize-lock-sources manifest (akku-only-lock lock) include-dev? #f cmd)))
+        (materialize-lock-sources manifest (external-only-lock lock) include-dev? #f cmd)))
 
     (define (build-token manifest features profile)
       (safe-store-token

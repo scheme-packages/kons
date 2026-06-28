@@ -46,6 +46,7 @@
     (kons dep path)
     (kons dep registry)
     (kons dep akku)
+    (kons dep snow)
     (kons dep workspace)
     (kons actions paths))
 
@@ -239,6 +240,7 @@
         ((git) (locked-git-entry-root entry))
         ((registry) (apply locked-registry-entry-root entry maybe-manifest))
         ((akku) (locked-akku-entry-root entry))
+        ((snow) (locked-snow-entry-root entry))
         (else #f)))
 
     (define (locked-entry-source-root entry . maybe-manifest)
@@ -272,6 +274,7 @@
         (case (lock-entry-type entry)
           ((git) (and root (git-checkout-ready? root (lock-entry-ref entry 'commit ""))))
           ((akku) (akku-source-ready? entry))
+          ((snow) (snow-source-ready? entry))
           (else
             (or (not root)
               (file-exists? root))))))
@@ -293,6 +296,9 @@
           ((and (eq? (lock-entry-type entry) 'akku)
               (not (akku-source-ready? entry)))
             (make-missing-materialization entry root 'akku-source-not-ready #f))
+          ((and (eq? (lock-entry-type entry) 'snow)
+              (not (snow-source-ready? entry)))
+            (make-missing-materialization entry root 'snow-source-not-ready #f))
           ((not (file-exists? root))
             (make-missing-materialization
               entry
@@ -781,12 +787,13 @@
               ((git) (materialize-locked-git-entry manifest entry offline?))
               ((registry) (materialize-locked-registry-entry manifest entry offline?))
               ((akku) (materialize-locked-akku-entry manifest entry offline?))
+              ((snow) (materialize-locked-snow-entry manifest entry offline?))
               (else (dependency-error "unsupported materializable locked dependency" type)))))))
 
     (define (materialize-lock-sources manifest lock include-dev? offline? . maybe-cmd)
       (let ((entries (filter (lambda (entry)
                               (and (locked-entry-in-scope? entry include-dev?)
-                                (memq (lock-entry-type entry) '(path git registry akku))))
+                                (memq (lock-entry-type entry) '(path git registry akku snow))))
                       (lock-package-entries lock)))
             (cmd (and (pair? maybe-cmd) (car maybe-cmd))))
         (if (null? entries)

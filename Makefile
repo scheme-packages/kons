@@ -49,6 +49,7 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/lock.scm
 	$(RUN_TEST) tests/akku-lock.scm
 	$(RUN_TEST) tests/akku-materialization.scm
+	$(RUN_TEST) tests/snow-lock.scm
 	$(RUN_TEST) tests/features.scm
 	$(RUN_TEST) tests/dev-dependencies.scm
 	$(RUN_TEST) tests/publish.scm

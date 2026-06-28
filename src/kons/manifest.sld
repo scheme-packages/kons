@@ -41,7 +41,8 @@
   (import (scheme base)
     (scheme file)
     (kons util)
-    (kons akku manifest))
+    (kons akku manifest)
+    (kons snow manifest))
 
   (begin
     (define current-manifest-path #f)
@@ -498,6 +499,12 @@
             form
             scope
             (source-context 'akku-dependency)
+            dependency-selectors))
+        ((snow)
+          (parse-snow-dependency
+            form
+            scope
+            (source-context 'snow-dependency)
             dependency-selectors))
         (else (manifest-error "unknown dependency type" (car form)))))
 

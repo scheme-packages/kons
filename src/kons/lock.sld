@@ -26,6 +26,7 @@
     (kons registry)
     (kons resolver)
     (kons akku lock)
+    (kons snow lock)
     (kons dep shared)
     (kons dep git)
     (kons dep path)
@@ -151,6 +152,9 @@
     (define (akku-dependency? dep)
       (eq? (alist-ref dep 'type #f) 'akku))
 
+    (define (snow-dependency? dep)
+      (eq? (alist-ref dep 'type #f) 'snow))
+
     (define (selected-registry-dependency? dep)
       (and (registry-dependency? dep)
         (not (alist-ref dep 'optional #f))))
@@ -159,9 +163,14 @@
       (and (akku-dependency? dep)
         (not (alist-ref dep 'optional #f))))
 
+    (define (selected-snow-dependency? dep)
+      (and (snow-dependency? dep)
+        (not (alist-ref dep 'optional #f))))
+
     (define (direct-lock-dependency? dep)
       (and (not (registry-dependency? dep))
-        (not (akku-dependency? dep))))
+        (not (akku-dependency? dep))
+        (not (snow-dependency? dep))))
 
     (define (registry-requirement dep)
       (append
@@ -383,6 +392,9 @@
              (preferred-akku-refs (if (command-flag? cmd "upgrade")
                                    '()
                                    (locked-akku-refs previous-lock)))
+             (preferred-snow-refs (if (command-flag? cmd "upgrade")
+                                   '()
+                                   (locked-snow-refs previous-lock)))
              (registry-data (registry-resolution-lock-data
                              (filter selected-registry-dependency? deps)
                              offline?
@@ -395,10 +407,18 @@
                          preferred-akku-refs
                          manifest
                          cmd))
+             (snow-data (snow-resolution-lock-data
+                         (filter selected-snow-dependency? deps)
+                         offline?
+                         preferred-snow-refs
+                         manifest
+                         cmd))
              (registry-entries (car registry-data))
              (registry-edges (cdr registry-data))
              (akku-entries (car akku-data))
              (akku-edges (cdr akku-data))
+             (snow-entries (car snow-data))
+             (snow-edges (cdr snow-data))
              (package-entries
                (sort-lock-entries
                  (dedupe-lock-entries
@@ -406,7 +426,8 @@
                      (map (lambda (dep) (dependency-lock-entry manifest dep))
                        (filter direct-lock-dependency? deps))
                      registry-entries
-                     akku-entries))))
+                     akku-entries
+                     snow-entries))))
              (override-entries
                (sort-lock-entries
                  (map (lambda (dep) (dependency-lock-entry manifest dep))
@@ -426,6 +447,7 @@
            ,@package-entries)
           (edges
            ,@registry-edges
-           ,@akku-edges)
+           ,@akku-edges
+           ,@snow-edges)
           (overrides
            ,@override-entries))))))

@@ -84,15 +84,22 @@
             (lock-value-key (lock-entry-scope entry))
             " "
             (lock-value-key (lock-entry-ref entry 'name '()))
-            (if (eq? (lock-entry-type entry) 'akku)
-              (string-append
-                " "
-                (lock-entry-ref entry 'version "")
-                " "
-                (lock-value-key (lock-entry-ref entry 'source-kind 'unknown))
-                " verified-index "
-                (lock-entry-ref entry 'source "akku"))
-              "")))
+            (cond
+              ((eq? (lock-entry-type entry) 'akku)
+                (string-append
+                  " "
+                  (lock-entry-ref entry 'version "")
+                  " "
+                  (lock-value-key (lock-entry-ref entry 'source-kind 'unknown))
+                  " verified-index "
+                  (lock-entry-ref entry 'source "akku")))
+              ((eq? (lock-entry-type entry) 'snow)
+                (string-append
+                  " "
+                  (lock-entry-ref entry 'version "")
+                  " repository "
+                  (lock-entry-ref entry 'source "snow")))
+              (else ""))))
         (else (lock-value-key entry))))
 
     (define (lock-entry-summary-token entry)
@@ -106,6 +113,8 @@
         ((eq? (lock-entry-type entry) 'git)
           (short-token (lock-entry-ref entry 'commit #f)))
         ((eq? (lock-entry-type entry) 'akku)
+          (short-token (lock-entry-ref entry 'source-cache-path #f)))
+        ((eq? (lock-entry-type entry) 'snow)
           (short-token (lock-entry-ref entry 'source-cache-path #f)))
         (else "")))
 

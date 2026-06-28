@@ -117,6 +117,20 @@ defaults to `"akku"`, which resolves through `$KONS_HOME/config/akku-sources.scm
 Akku versions are SemVer requirements. Kons can resolve and fetch Akku packages,
 but it does not publish packages to the Akku registry.
 
+Snow package dependency:
+
+```scheme
+(dependencies
+  (snow (name (retropikzel system))
+        (version "^1.0")))
+```
+
+Snow names are Scheme lists. The `source` field defaults to `"snow"`, which
+points at `https://snow-fort.org/s/repo.scm`; it may also be a repository URL
+or local repository file. Snow versions are SemVer requirements. Kons resolves
+library dependencies from Snow repository metadata and materializes snowballs
+into `$KONS_HOME/store/snow/sources`.
+
 Path dependency:
 
 ```scheme
@@ -154,6 +168,7 @@ Dependency kinds:
 | --- | --- |
 | `registry` | Package comes from a Kons registry. |
 | `akku` | Package comes from a verified Akku archive index. |
+| `snow` | Package comes from a Snow repository. |
 | `path` | Package is in a local directory. |
 | `git` | Package is in a Git repo. |
 | `workspace` | Package is another member of same workspace. |

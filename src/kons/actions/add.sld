@@ -10,6 +10,7 @@
     (kons features)
     (kons lock)
     (kons dep akku)
+    (kons dep snow)
     (kons runner)
     (kons options)
     (kons actions paths)
@@ -21,11 +22,16 @@
              (manifest (parse-manifest manifest-path*))
              (positionals (command-rest cmd))
              (akku-name (command-option cmd "akku" #f))
+             (snow-name (command-option cmd "snow" #f))
              (raw-name (cond
                         (akku-name
                           (when (pair? positionals)
                             (usage-error "--akku takes the Akku package name as its option value"))
                           akku-name)
+                        (snow-name
+                          (when (pair? positionals)
+                            (usage-error "--snow takes the Snow package name as its option value"))
+                          snow-name)
                         ((pair? positionals) (car positionals))
                         (else (usage-error "add requires dependency name"))))
              (dep-expr (make-add-dependency-expr raw-name cmd))
@@ -52,11 +58,17 @@
             (display "added ")
             (when (eq? dep-type 'akku)
               (display "Akku package "))
+            (when (eq? dep-type 'snow)
+              (display "Snow package "))
             (display raw-name)
             (display " to ")
             (displayln (symbol->string block))
             (when (eq? dep-type 'akku)
               (display-added-akku-diagnostics
+                (read-lockfile (command-lock-path (parse-manifest manifest-path*) cmd))
+                dep-name))
+            (when (eq? dep-type 'snow)
+              (display-added-snow-diagnostics
                 (read-lockfile (command-lock-path (parse-manifest manifest-path*) cmd))
                 dep-name))))))
 
@@ -84,4 +96,28 @@
           (display (lock-entry-ref entry 'source "akku"))
           (display " ")
           (display (if (akku-source-ready? entry) "cache-ready " "cache-missing "))
+          (displayln (lock-entry-ref entry 'source-cache-path "")))))
+
+    (define (matching-snow-entry? name entry)
+      (and (eq? (lock-entry-type entry) 'snow)
+        (equal? (lock-entry-ref entry 'name '()) name)))
+
+    (define (find-snow-entry lock name)
+      (let loop ((entries (lock-package-entries lock)))
+        (cond
+          ((null? entries) #f)
+          ((matching-snow-entry? name (car entries)) (car entries))
+          (else (loop (cdr entries))))))
+
+    (define (display-added-snow-diagnostics lock name)
+      (let ((entry (find-snow-entry lock name)))
+        (when entry
+          (display "snow ")
+          (write (lock-entry-ref entry 'name '()))
+          (display " ")
+          (display (lock-entry-ref entry 'version ""))
+          (display " repository ")
+          (display (lock-entry-ref entry 'source "snow"))
+          (display " ")
+          (display (if (snow-source-ready? entry) "cache-ready " "cache-missing "))
           (displayln (lock-entry-ref entry 'source-cache-path "")))))))

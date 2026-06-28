@@ -92,6 +92,7 @@ variant.
 kons add example/base --version ^1.2
 kons add --akku srfi-1 --version ^1.0
 kons add --akku '(chibi match)' --version 0.7.0
+kons add --snow retropikzel/system --version ^1.0
 kons add local/lib --path ../lib
 kons add remote/lib --git https://example.invalid/lib.git --rev main
 kons add scheme/base --system
@@ -125,6 +126,11 @@ trusted OpenPGP keyrings, locks source metadata, verifies URL tarball SHA-256
 checksums before extraction, and materializes Akku sources under
 `$KONS_HOME/store/akku/sources`. Kons consumes Akku packages; publishing remains
 for Kons registries only.
+
+Snow packages are resolved from `https://snow-fort.org/s/repo.scm` by default.
+Use `(snow (name (retropikzel system)) (version "^1.0"))` or
+`kons add --snow retropikzel/system --version ^1.0`; Snow metadata and
+snowballs are cached under `$KONS_HOME/store/snow`.
 
 ## Publish
 

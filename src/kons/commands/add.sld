@@ -42,6 +42,11 @@
             "Add an Akku package by flat name or exact list syntax, for example '(chibi match)'."
             'value-help:
             "NAME")
+          (list 'option "snow"
+            'help:
+            "Add a Snow package or library by slash path or exact list syntax, for example '(chibi match)'."
+            'value-help:
+            "NAME")
           (list 'flag "workspace"
             'help:
             "Operate on workspace members.")
