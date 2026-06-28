@@ -108,6 +108,13 @@
       (when (frozen-mode? cmd)
         (verify-frozen-registry-cache! manifest lock include-dev?)))
 
+    (define (prepare-akku-activation-root-if-needed! manifest lock include-dev? cmd)
+      (prepare-akku-activation-root!
+        manifest
+        lock
+        include-dev?
+        (adapter-scheme manifest (command-selected-scheme cmd))))
+
     (define (ensure-activation-ready-core! manifest features include-dev? cmd)
       (let ((offline? (or (command-flag? cmd "offline")
                        (command-flag? cmd "frozen")))
@@ -118,23 +125,27 @@
               (cond
                 ((activation-lock-fast-ready? manifest features include-dev? cmd stored offline?)
                   (verify-frozen-lock-cache-if-needed! manifest stored include-dev? cmd)
+                  (prepare-akku-activation-root-if-needed! manifest stored include-dev? cmd)
                   '())
                 ((and offline? (lock-root-matches? manifest features cmd stored))
                   (unless (lock-materialized? stored include-dev? manifest)
                     (materialize-lock-sources manifest stored include-dev? offline? cmd))
-                  (verify-frozen-lock-cache-if-needed! manifest stored include-dev? cmd))
+                  (verify-frozen-lock-cache-if-needed! manifest stored include-dev? cmd)
+                  (prepare-akku-activation-root-if-needed! manifest stored include-dev? cmd))
                 ((lock-root-matches? manifest features cmd stored)
                   (let ((new-lock (make-lock manifest features cmd include-dev? stored)))
                     (cond
                       ((activation-lock-compatible? manifest features include-dev? cmd stored)
                         (unless (lock-materialized? stored include-dev? manifest)
-                          (materialize-lock-sources manifest stored include-dev? #f cmd)))
+                          (materialize-lock-sources manifest stored include-dev? #f cmd))
+                        (prepare-akku-activation-root-if-needed! manifest stored include-dev? cmd))
                       ((command-locked-mode? cmd)
                         (stale-lockfile-error manifest features cmd stored include-dev?))
                       (else
                         (write-expr-file lock-path new-lock)
                         (log-info "updated kons.lock for activation")
-                        (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd)))))
+                        (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd)
+                        (prepare-akku-activation-root-if-needed! manifest new-lock include-dev? cmd)))))
                 ((command-locked-mode? cmd)
                   (stale-lockfile-error manifest features cmd stored include-dev?))
                 (offline?
@@ -143,14 +154,16 @@
                   (let ((new-lock (make-lock manifest features cmd include-dev?)))
                     (write-expr-file lock-path new-lock)
                     (log-info "updated kons.lock for activation")
-                    (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd))))))
+                    (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd)
+                    (prepare-akku-activation-root-if-needed! manifest new-lock include-dev? cmd))))))
           ((or (command-locked-mode? cmd) offline?)
             (lockfile-error "kons.lock missing; run `kons update` first"))
           (else
             (let ((new-lock (make-lock manifest features cmd include-dev?)))
               (write-expr-file lock-path new-lock)
               (log-info "created kons.lock for activation")
-              (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd))))))
+              (materialize-live-and-akku-lock-sources manifest features include-dev? new-lock cmd)
+              (prepare-akku-activation-root-if-needed! manifest new-lock include-dev? cmd))))))
 
     (define (external-lock-entry? entry)
       (memq (lock-entry-type entry) '(akku snow)))

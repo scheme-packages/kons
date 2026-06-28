@@ -13,6 +13,7 @@
     locked-activation-source-roots
     locked-entry-source-root
     effective-activation-source-roots
+    prepare-akku-activation-root!
     locked-entry-in-scope?
     lock-missing-materializations
     missing-materialization-details
@@ -425,9 +426,34 @@
         (cons (manifest-source-root manifest)
           (dependency-source-roots manifest include-dev? features cmd))))
 
+    (define (akku-lock-entry? entry)
+      (eq? (lock-entry-type entry) 'akku))
+
+    (define (akku-lock-entries lock include-dev?)
+      (filter
+        (lambda (entry)
+          (and (akku-lock-entry? entry)
+            (locked-entry-in-scope? entry include-dev?)))
+        (lock-package-entries lock)))
+
+    (define (activation-akku-installed-root manifest)
+      (project-kons-path manifest (path-join "akku" "installed")))
+
     (define (locked-activation-source-roots manifest lock include-dev?)
-      (cons (manifest-source-root manifest)
-        (locked-dependency-source-roots lock include-dev? manifest)))
+      (let ((dependencies (locked-dependency-source-roots lock include-dev? manifest)))
+        (cons (manifest-source-root manifest)
+          (if (null? (akku-lock-entries lock include-dev?))
+            dependencies
+            (cons (activation-akku-installed-root manifest) dependencies)))))
+
+    (define (prepare-akku-activation-root! manifest lock include-dev? scheme)
+      (let ((entries (akku-lock-entries lock include-dev?)))
+        (if (null? entries)
+          '()
+          (prepare-akku-installed-root!
+            (activation-akku-installed-root manifest)
+            entries
+            scheme))))
 
     (define (workspace-shared-lock? cmd)
       (and (command-option cmd "workspace-root" #f) #t))

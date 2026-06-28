@@ -61,11 +61,16 @@
       (let ((parent (dirname path)))
         (if (string=? parent path) #f parent)))
 
+    (define (path-last-segment path)
+      (let ((parts (filter non-empty-string? (string-split path #\/))))
+        (if (null? parts) path (car (reverse parts)))))
+
     (define (find-package-root-for-source-root source-root)
       (let loop ((dir source-root))
         (let ((manifest-path (path-join dir "kons.scm")))
           (cond
             ((file-exists? manifest-path) dir)
+            ((string=? (path-last-segment dir) ".kons") #f)
             ((or (string=? dir ".") (string=? dir "/")) #f)
             ((parent-path dir) => loop)
             (else #f)))))
