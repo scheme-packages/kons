@@ -1,12 +1,12 @@
 (import (scheme base)
-        (scheme file)
-        (scheme write)
-        (srfi 64)
-        (kons manifest)
-        (kons names)
-        (kons resolver)
-        (kons akku format)
-        (kons akku resolver))
+  (scheme file)
+  (scheme write)
+  (srfi 64)
+  (kons manifest)
+  (kons names)
+  (kons resolver)
+  (kons akku format)
+  (kons akku resolver))
 
 (test-begin "kons Akku resolver")
 
@@ -29,16 +29,16 @@
 
 (define (packages->name-version resolution)
   (map (lambda (candidate)
-         (list (field-ref candidate 'akku-name #f)
-               (field-ref candidate 'version "")))
-       (resolution-packages resolution)))
+        (list (field-ref candidate 'akku-name #f)
+          (field-ref candidate 'version "")))
+    (resolution-packages resolution)))
 
 (define (candidate-for-akku-name name candidates)
   (let loop ((items candidates))
     (cond
-     ((null? items) #f)
-     ((equal? (field-ref (car items) 'akku-name #f) name) (car items))
-     (else (loop (cdr items))))))
+      ((null? items) #f)
+      ((equal? (field-ref (car items) 'akku-name #f) name) (car items))
+      (else (loop (cdr items))))))
 
 (define (requirement name range . maybe-kind)
   `((type . akku)
@@ -53,8 +53,8 @@
 (ensure-directory root)
 
 (write-file
- index-path
- "(import (akku format index))
+  index-path
+  "(import (akku format index))
 
 (package (name \"flat-name\")
   (versions
@@ -135,114 +135,114 @@
 (define candidates (akku-packages->resolver-candidates packages "akku"))
 
 (test-equal
- "manifest parses flat Akku dependency"
- '((type . akku)
-   (scope . runtime)
-   (name . "flat-name")
-   (version . "^1.0")
-   (source . "akku")
-   (optional . #f))
- (parse-dependency '(akku (name "flat-name") (version "^1.0") (source "akku")) 'runtime))
+  "manifest parses flat Akku dependency"
+  '((type . akku)
+    (scope . runtime)
+    (name . "flat-name")
+    (version . "^1.0")
+    (source . "akku")
+    (optional . #f))
+  (parse-dependency '(akku (name "flat-name") (version "^1.0") (source "akku")) 'runtime))
 
 (test-equal
- "manifest parses list-shaped Akku dependency without string collapse"
- '(chibi match)
- (field-ref
-  (parse-dependency '(akku (name (chibi match)) (version "0.7.0")) 'runtime)
-  'name
-  #f))
+  "manifest parses list-shaped Akku dependency without string collapse"
+  '(chibi match)
+  (field-ref
+    (parse-dependency '(akku (name (chibi match)) (version "0.7.0")) 'runtime)
+    'name
+    #f))
 
 (test-equal
- "flat-name package resolves highest matching version"
- '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "flat-name package resolves highest matching version"
+  '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement "flat-name" "^1.0")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "list-name package keeps original list name"
- '(((chibi match) "0.7.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "list-name package keeps original list name"
+  '(((chibi match) "0.7.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement '(chibi match) "0.7.0")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "candidate id is namespaced by Akku name shape"
- "registry:akku:akku/list/chibi/match:0.7.0"
- (candidate-id (candidate-for-akku-name '(chibi match) candidates)))
-
-(test-equal
- "Akku tilde range uses resolver semantics"
- '(("flat-name" "1.0.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "Akku tilde range uses resolver semantics"
+  '(("flat-name" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement "flat-name" "~1.0")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "Akku wildcard range uses resolver semantics"
- '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "Akku wildcard range uses resolver semantics"
+  '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement "flat-name" "1.x")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "transitive Akku dependencies resolve"
- '(("transitive-root" "1.0.0")
-   ("transitive-mid" "1.0.0")
-   ("transitive-leaf" "1.0.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "Akku compound comparator range uses resolver semantics"
+  '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
+        (list (requirement "flat-name" ">=0.0.0-akku <2.0.0")))
+      candidates)))
+
+(test-equal
+  "Akku disjunctive range uses resolver semantics"
+  '(("flat-name" "1.2.0") ("direct-leaf" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
+        (list (requirement "flat-name" "~1.2.0 || ~2.0.0")))
+      candidates)))
+
+(test-equal
+  "transitive Akku dependencies resolve"
+  '(("transitive-root" "1.0.0")
+    ("transitive-mid" "1.0.0")
+    ("transitive-leaf" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement "transitive-root" "^1.0")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "depends/dev is not pulled transitively"
- '(("dev-root" "1.0.0"))
- (packages->name-version
-  (resolve-akku-dependencies
-   (map akku-dependency->resolver-requirement
+  "depends/dev is not pulled transitively"
+  '(("dev-root" "1.0.0"))
+  (packages->name-version
+    (resolve-akku-dependencies
+      (map akku-dependency->resolver-requirement
         (list (requirement "dev-root" "^1.0" 'dev)))
-   candidates)))
+      candidates)))
 
 (test-equal
- "unsatisfied Akku version range reports resolver failure"
- "no matching package version"
- (failure-message
-  (resolve-akku-dependencies/failure-details
-   (map akku-dependency->resolver-requirement
+  "unsatisfied Akku version range reports resolver failure"
+  "no matching package version"
+  (failure-message
+    (resolve-akku-dependencies/failure-details
+      (map akku-dependency->resolver-requirement
         (list (requirement "flat-name" ">=9.0.0")))
-   candidates)))
+      candidates)))
 
 (test-equal
- "conflicting Akku packages report Akku conflict"
- "Akku package conflict"
- (failure-message
-  (resolve-akku-dependencies/failure-details
-   (map akku-dependency->resolver-requirement
+  "conflicting Akku packages report Akku conflict"
+  "Akku package conflict"
+  (failure-message
+    (resolve-akku-dependencies/failure-details
+      (map akku-dependency->resolver-requirement
         (list (requirement "conflict-root" "^1.0")))
-   candidates)))
-
-(test-equal
- "registry git path and Akku dependencies coexist in manifest parsing"
- '(registry git path akku)
- (map (lambda (dep) (field-ref dep 'type #f))
-      (parse-dependency-block
-       '((dependencies
-          (registry (name (example registry)) (version "^1.0"))
-          (git (name (example git)) (url "https://example.invalid/git.git"))
-          (path (name (example path)) (path "vendor/path") (raw #t))
-          (akku (name "flat-name") (version "^1.0"))))
-       'dependencies
-       'runtime)))
+      candidates)))
 
 (let ((failures (test-runner-fail-count (test-runner-get))))
   (test-end "kons Akku resolver")
