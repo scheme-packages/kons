@@ -41,6 +41,7 @@
     (kons dep registry)
     (kons actions paths)
     (kons actions lock-shared)
+    (kons actions activation translate)
     (kons commands framework))
 
   (begin
@@ -318,6 +319,13 @@
             (and (build-output-needed? dep-manifest)
               (dependency-build-output-dir dep-manifest package-root dep-features cmd))))))
 
+    (define (dependency-r7rs->r6rs-translation-active? source-root cmd)
+      (let ((package-root (find-package-root-for-source-root source-root)))
+        (and package-root
+          (r7rs->r6rs-translation-active-for-scheme?
+            (parse-manifest (path-join package-root "kons.scm"))
+            (command-selected-scheme cmd)))))
+
     (define (activation-source-roots-with-dependency-builds manifest include-dev? features cmd)
       (let ((srcs (effective-activation-source-roots manifest include-dev? features cmd)))
         (if (null? srcs)
@@ -335,17 +343,22 @@
                           features)))
                   (loop (cdr items)
                     (if build-root
-                      (append
-                        (reverse
-                          (cons build-root
-                            (dependency-build-output-load-paths
-                              (car items)
-                              cmd
-                              build-root
-                              manifest
-                              include-dev?
-                              features)))
-                        (cons (car items) out))
+                      (let* ((generated-roots
+                               (cons build-root
+                                 (dependency-build-output-load-paths
+                                   (car items)
+                                   cmd
+                                   build-root
+                                   manifest
+                                   include-dev?
+                                   features)))
+                             (roots
+                               (if (dependency-r7rs->r6rs-translation-active?
+                                     (car items)
+                                     cmd)
+                                 generated-roots
+                                 (cons (car items) generated-roots))))
+                        (append (reverse roots) out))
                       (cons (car items) out))))))))))
 
     (define (implementation-field probe key default)
