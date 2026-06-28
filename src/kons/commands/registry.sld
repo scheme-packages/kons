@@ -24,7 +24,6 @@
         (list 'option "limit" 'help: "Limit search results." 'value-help: "N")
         (list 'option "page" 'help: "Search result page." 'value-help: "N")
         (list 'option "type" 'help: "Search type: package, library, identifier, or all." 'value-help: "TYPE")
-        (list 'option "format" 'help: "Output format for inspection commands: text or json." 'value-help: "FORMAT")
         (list 'option "version" 'help: "Version to yank or unyank." 'value-help: "VERSION")
         (list 'option "vers" 'help: "Alias for --version." 'value-help: "VERSION")
         (list 'option "add" 'help: "Add an owner." 'value-help: "USER")

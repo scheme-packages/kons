@@ -15,12 +15,6 @@
     (kons actions tree-clean))
 
   (begin
-    (define (dot-format? value)
-      (and value (string=? value "dot")))
-
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (graph-node-id value)
       (cond
         ((symbol? value) (symbol->string value))
@@ -269,13 +263,7 @@
       (displayln "}"))
 
     (define (write-graph cmd form)
-      (let ((format (command-option cmd "format" "sexp")))
-        (cond
-          ((dot-format? format) (write-graph-dot form))
-          ((json-format? format)
-            (json-write (graph-form->json form) (current-output-port))
-            (newline))
-          (else (writeln form)))))
+      (writeln form))
 
     (define (cmd-graph cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

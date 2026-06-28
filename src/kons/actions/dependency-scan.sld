@@ -43,9 +43,6 @@
       (imports scan-report-imports)
       (missing scan-report-missing))
 
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (library-entry->scan-library source-root entry)
       (make-scan-library
         (car entry)
@@ -217,9 +214,7 @@
       (newline))
 
     (define (write-dependency-scan-report cmd report)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (write-report-json report)
-        (writeln (report->sexp report))))
+      (writeln (report->sexp report)))
 
     (define (cmd-dependency-scan cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

@@ -1,5 +1,5 @@
 export function createRoute(ctx) {
-  const { currentUser, sendJson, publicBaseUrl, configuredPublicUrl, configuredProviders, emailAuthInfo, config, parseCookies, clearSessionCookie, sha256, db, enforceRateLimit, handleEmailStart, handleEmailVerify, handleAuthStart, handleAuthCallback, requireUser, listTokens, createToken, deleteToken, searchPackages, resolvePackages, librarySearch, libraryProviders, identifierSearch, managedPackages, publishPackage, packageNameFromApiPath, packageDependents, packageVersionList, versionRouteParts, packageVersionMetadata, packageVersionManifest, listPackageOwners, addPackageOwner, removePackageOwner, listPackageAudit, yankVersion, deletePackage, deletePackageVersion, httpError, sendArchive, resolvePackageVersion, publicPackage, indexConfig, sparsePathForName, indexLines, send, staticFile } = ctx;
+  const { currentUser, sendJson, publicBaseUrl, configuredPublicUrl, configuredProviders, emailAuthInfo, config, parseCookies, clearSessionCookie, sha256, db, enforceRateLimit, handleEmailStart, handleEmailVerify, handleAuthStart, handleAuthCallback, requireUser, listTokens, createToken, deleteToken, searchPackages, resolvePackages, librarySearch, libraryProviders, identifierSearch, managedPackages, publishPackage, packageNameFromApiPath, packageDependents, packageVersionList, versionsSexp, versionRouteParts, packageVersionMetadata, packageVersionManifest, listPackageOwners, addPackageOwner, removePackageOwner, listPackageAudit, yankVersion, deletePackage, deletePackageVersion, httpError, sendArchive, resolvePackageVersion, publicPackage, indexConfig, sparsePathForName, indexLines, send, staticFile } = ctx;
 
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "local"}`);
@@ -144,15 +144,19 @@ async function route(req, res) {
 
   if (req.method === "GET" && pathname.endsWith("/versions") && pathname.startsWith("/api/v1/packages/")) {
     const name = packageNameFromApiPath(pathname, "/versions");
-    sendJson(
-      res,
-      200,
-      packageVersionList(
-        name,
-        url.searchParams.get("includeYanked") === "1",
-        url.searchParams.get("signed") === "1"
-      )
+    const payload = packageVersionList(
+      name,
+      url.searchParams.get("includeYanked") === "1",
+      url.searchParams.get("signed") === "1"
     );
+    if (url.searchParams.get("format") === "json") {
+      sendJson(res, 200, payload);
+    } else {
+      send(res, 200, versionsSexp(payload), {
+        "content-type": "text/x-scheme; charset=utf-8",
+        "cache-control": "public, max-age=60",
+      });
+    }
     return;
   }
 
@@ -249,7 +253,7 @@ async function route(req, res) {
     const found = rows.find((row) => sparsePathForName(row.name) === sparsePath);
     if (!found) throw httpError(404, "index entry not found");
     send(res, 200, indexLines(found.name), {
-      "content-type": "application/x-ndjson; charset=utf-8",
+      "content-type": "text/x-scheme; charset=utf-8",
       "cache-control": "public, max-age=60",
     });
     return;

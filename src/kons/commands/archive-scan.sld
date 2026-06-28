@@ -16,9 +16,4 @@
             'help:
             "Archive file to inspect."
             'value-help:
-            "FILE")
-          (list 'option "format"
-            'help:
-            "Output format: sexp or json."
-            'value-help:
-            "FORMAT"))))))
+            "FILE"))))))

@@ -17,9 +17,6 @@
     (kons actions tree-clean))
 
   (begin
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (field-form-key form)
       (and (pair? form) (car form)))
 
@@ -70,11 +67,7 @@
           (edges . ,(tree-entries->json (cdr edges))))))
 
     (define (write-tree cmd form)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (begin
-          (json-write (tree-form->json form) (current-output-port))
-          (newline))
-        (writeln form)))
+      (writeln form))
 
     (define (locked-tree-form manifest features lock)
       `(tree

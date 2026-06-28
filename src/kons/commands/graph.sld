@@ -11,9 +11,4 @@
       (make-kons-command
         runner
         (kons-command-spec "graph" cmd-graph "Print the dependency graph." #t #t #t #f #f)
-        (make-command-grammar
-          (list 'option "format"
-            'help:
-            "Output format: sexp, dot, or json."
-            'value-help:
-            "FORMAT"))))))
+        (make-command-grammar)))))

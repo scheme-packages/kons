@@ -423,7 +423,7 @@
     (define (registry-package-versions-cache-path registry name)
       (path-join
         (registry-metadata-root registry)
-        (string-append (safe-store-token name) "-versions.json")))
+        (string-append (safe-store-token name) "-versions.scm")))
 
     (define (registry-package-versions-signature-cache-path registry name)
       (string-append (registry-package-versions-cache-path registry name) ".sig.json"))
@@ -436,6 +436,162 @@
         (string-append "registry metadata JSON could not be " kind "; run `kons update` to refresh it")
         (string-append "registry response JSON could not be " kind)))
 
+    (define (registry-space? ch)
+      (or (char=? ch #\space)
+        (char=? ch #\tab)
+        (char=? ch #\newline)
+        (char=? ch #\return)))
+
+    (define (read-first-nonspace path)
+      (call-with-input-file path
+        (lambda (in)
+          (let loop ((ch (read-char in)))
+            (cond
+              ((eof-object? ch) ch)
+              ((registry-space? ch) (loop (read-char in)))
+              (else ch))))))
+
+    (define (sexp-field fields key default)
+      (let loop ((items fields))
+        (cond
+          ((null? items) default)
+          ((and (pair? (car items)) (eq? (caar items) key))
+            (let ((values (cdar items)))
+              (cond
+                ((null? values) default)
+                ((null? (cdr values)) (car values))
+                (else values))))
+          (else (loop (cdr items))))))
+
+    (define (sexp-field-values fields key)
+      (let loop ((items fields))
+        (cond
+          ((null? items) '())
+          ((and (pair? (car items)) (eq? (caar items) key)) (cdar items))
+          (else (loop (cdr items))))))
+
+    (define (sexp-field-forms fields key)
+      (let loop ((items fields) (out '()))
+        (cond
+          ((null? items) (reverse out))
+          ((and (pair? (car items)) (eq? (caar items) key))
+            (loop (cdr items) (cons (car items) out)))
+          (else (loop (cdr items) out)))))
+
+    (define (sexp-symbol-string value)
+      (cond
+        ((symbol? value) (symbol->string value))
+        ((string? value) value)
+        (else "")))
+
+    (define (sexp-symbol-vector values)
+      (list->vector (map sexp-symbol-string values)))
+
+    (define (sexp-string-value value)
+      (cond
+        ((string? value) value)
+        ((symbol? value) (symbol->string value))
+        ((number? value) (number->string value))
+        (else "")))
+
+    (define (sexp-user->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'user)) (cdr form) '())))
+        `((id . ,(sexp-field fields 'id #f))
+          (username . ,(sexp-string-value (sexp-field fields 'username "")))
+          (displayName . ,(sexp-string-value (sexp-field fields 'display-name ""))))))
+
+    (define (sexp-provenance->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'provenance)) (cdr form) '())))
+        `((publishedBy . ,(sexp-user->json (sexp-field fields 'published-by '())))
+          (publishedAt . ,(sexp-string-value (sexp-field fields 'published-at "")))
+          (checksum . ,(sexp-string-value (sexp-field fields 'checksum "")))
+          (size . ,(sexp-field fields 'size 0)))))
+
+    (define (sexp-dependency->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'dependency)) (cdr form) '())))
+        `((name . ,(sexp-string-value (sexp-field fields 'name "")))
+          (req . ,(sexp-string-value (sexp-field fields 'req "*")))
+          (kind . ,(sexp-symbol-string (sexp-field fields 'kind 'normal)))
+          (registry . ,(let ((value (sexp-field fields 'registry #f)))
+                         (and value (sexp-string-value value))))
+          (optional . ,(and (sexp-field fields 'optional #f) #t))
+          (target . ,(let ((value (sexp-field fields 'target #f)))
+                       (and value (sexp-string-value value))))
+          (schemes . ,(sexp-symbol-vector (sexp-field-values fields 'schemes)))
+          (implementations . ,(sexp-symbol-vector (sexp-field-values fields 'implementations)))
+          (dialects . ,(sexp-symbol-vector (sexp-field-values fields 'dialects)))
+          (targets . ,(list->vector (map sexp-string-value (sexp-field-values fields 'targets))))
+          (profiles . ,(sexp-symbol-vector (sexp-field-values fields 'profiles)))
+          (compileModes . ,(sexp-symbol-vector (sexp-field-values fields 'compile-modes)))
+          (features . ,(sexp-symbol-vector (sexp-field-values fields 'features))))))
+
+    (define (sexp-feature-dependency->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'feature-dependency)) (cdr form) '())))
+        `((feature . ,(sexp-symbol-string (sexp-field fields 'feature 'unknown)))
+          (dependencies . ,(list->vector
+                            (map sexp-dependency->json
+                              (sexp-field-values fields 'dependencies)))))))
+
+    (define (sexp-version->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'version)) (cdr form) '())))
+        `((version . ,(sexp-string-value (sexp-field fields 'number "")))
+          (checksum . ,(sexp-string-value (sexp-field fields 'checksum "")))
+          (size . ,(sexp-field fields 'size 0))
+          (downloadUrl . ,(sexp-string-value (sexp-field fields 'download-url "")))
+          (yanked . ,(and (sexp-field fields 'yanked #f) #t))
+          (publishedAt . ,(sexp-string-value (sexp-field fields 'published-at "")))
+          (provenance . ,(sexp-provenance->json (sexp-field fields 'provenance '())))
+          (description . ,(sexp-string-value (sexp-field fields 'description "")))
+          (license . ,(sexp-string-value (sexp-field fields 'license "")))
+          (dialects . ,(sexp-symbol-vector (sexp-field-values fields 'dialects)))
+          (features . ,(sexp-symbol-vector (sexp-field-values fields 'features)))
+          (featureDependencies . ,(list->vector
+                                   (map sexp-feature-dependency->json
+                                     (sexp-field-values fields 'feature-dependencies))))
+          (dependencies . ,(list->vector
+                            (map sexp-dependency->json
+                              (sexp-field-values fields 'dependencies)))))))
+
+    (define (sexp-entry->version-json api form)
+      (let* ((fields (if (and (pair? form) (eq? (car form) 'entry)) (cdr form) '()))
+             (name (sexp-string-value (sexp-field fields 'name "")))
+             (version (sexp-string-value (sexp-field fields 'version ""))))
+        `((version . ,version)
+          (checksum . ,(sexp-string-value (sexp-field fields 'checksum "")))
+          (downloadUrl . ,(string-append api "/api/v1/packages/" name "/" version "/download"))
+          (yanked . ,(and (sexp-field fields 'yanked #f) #t))
+          (provenance . ,(sexp-provenance->json (sexp-field fields 'provenance '())))
+          (dialects . ,(sexp-symbol-vector (sexp-field-values fields 'dialects)))
+          (features . ,(sexp-symbol-vector (sexp-field-values fields 'features)))
+          (featureDependencies . ,(list->vector
+                                   (map sexp-feature-dependency->json
+                                     (sexp-field-values fields 'feature-dependencies))))
+          (dependencies . ,(list->vector
+                            (map sexp-dependency->json
+                              (sexp-field-values fields 'dependencies)))))))
+
+    (define (registry-sexp-read path)
+      (let ((forms (read-all-exprs path)))
+        (cond
+          ((and (= (length forms) 1)
+             (pair? (car forms))
+             (eq? (caar forms) 'kons-registry-versions))
+            (let ((fields (cdar forms)))
+              `((package . ,(sexp-string-value (sexp-field fields 'package "")))
+                (versions . ,(list->vector
+                              (map sexp-version->json
+                                (sexp-field-values fields 'versions)))))))
+          ((and (= (length forms) 1)
+             (pair? (car forms))
+             (eq? (caar forms) 'kons-registry-index))
+            (let* ((api "")
+                   (entries (sexp-field-forms (cdar forms) 'entry)))
+              `((entries . ,(list->vector
+                             (map (lambda (entry) (sexp-entry->version-json api entry))
+                               entries))))))
+          (else
+            (dependency-error "registry metadata S-expression could not be parsed" path)))))
+
     (define (registry-json-read path)
       (guard (exn
               ((json-error? exn)
@@ -446,7 +602,10 @@
                 (dependency-error (registry-json-read-error-message path "read")
                   path
                   (error-object-message exn))))
-        (call-with-input-file path json-read)))
+        (if (let ((first (read-first-nonspace path)))
+              (and (char? first) (char=? first #\()))
+          (registry-sexp-read path)
+          (call-with-input-file path json-read))))
 
     (define (write-text-file path text)
       (call-with-output-file path
@@ -654,18 +813,27 @@
           (dependencies . ,(map (lambda (dep) (registry-json-dependency registry dep))
                             (json-array->list (json-ref row 'dependencies '#())))))))
 
-    (define (registry-json-candidates path registry api)
+    (define (registry-json-candidates path registry api fallback-package-name)
       (let* ((data (registry-json-read path))
              (package-name (json-string-ref data 'package ""))
-             (versions (json-array->list (json-ref data 'versions '#()))))
+             (versions (let ((items (json-array->list (json-ref data 'versions '#()))))
+                         (if (null? items)
+                           (json-array->list (json-ref data 'entries '#()))
+                           items))))
         (map (lambda (row)
-              (registry-json-candidate registry api package-name row))
+              (registry-json-candidate
+                registry
+                api
+                (if (string=? package-name "")
+                  fallback-package-name
+                  package-name)
+                row))
           versions)))
 
     (define (registry-package-sparse-index-cache-path registry name)
       (path-join
         (registry-metadata-root registry)
-        (string-append (safe-store-token name) "-index.jsonl")))
+        (string-append (safe-store-token name) "-index.scm")))
 
     (define (lowercase-ascii-alphanumeric? ch)
       (or (and (char>=? ch #\a) (char<=? ch #\z))
@@ -843,7 +1011,7 @@
                     (if body-file
                       (string-append
                         " -H "
-                        (shell-quote "Content-Type: application/json")
+                        (shell-quote "Content-Type: text/x-scheme")
                         " --data-binary @"
                         (shell-quote body-file))
                       "")
@@ -980,12 +1148,7 @@
                                         (shell-quote (dirname sparse-cache-path))))
                                     (copy-file! fresh sparse-cache-path)
                                     fresh)))))
-                        (verified-sparse-index-lines->payload
-                          registry
-                          name-text
-                          sparse-json
-                          cache-path
-                          (not offline?))))
+                        sparse-json))
                     ((and offline? (registry-trust-required? registry)
                         (file-exists? signature-cache-path))
                       signature-cache-path)
@@ -1018,7 +1181,7 @@
                    cache-path
                    (not offline?))))
              (api (without-trailing-slash (registry-url registry))))
-        (registry-json-candidates metadata-path registry api)))
+        (registry-json-candidates metadata-path registry api name-text)))
 
     (define (download-registry-package! registry name version checksum download offline?)
       (let* ((archive (registry-archive-path registry name version checksum))

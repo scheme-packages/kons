@@ -17,9 +17,6 @@
     (kons actions lock-shared))
 
   (begin
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (name->json name)
       (list->vector (map (lambda (part)
                           (cond
@@ -113,11 +110,7 @@
              '()))))
 
     (define (write-resolution cmd manifest features)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (begin
-          (json-write (resolution-json manifest features cmd) (current-output-port))
-          (newline))
-        (writeln (resolution-form manifest features cmd))))
+      (writeln (resolution-form manifest features cmd)))
 
     (define (cmd-resolve cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

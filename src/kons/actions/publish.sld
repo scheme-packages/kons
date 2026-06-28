@@ -24,27 +24,17 @@
       (let ((value (command-option cmd name #f)))
         (if (string? value) value #f)))
 
-    (define (symbol-list->json strings)
-      (string-append
-        "["
-        (string-join (map (lambda (item) (json-string (symbol->string item))) strings) ",")
-        "]"))
-
-    (define (name-part->json part)
+    (define (name-part->string part)
       (cond
-        ((symbol? part) (json-string (symbol->string part)))
-        ((number? part) (json-string (number->string part)))
-        (else (json-string ""))))
+        ((symbol? part) (symbol->string part))
+        ((number? part) (number->string part))
+        (else "")))
 
-    (define (name-list->json name)
+    (define (name-list->sexp name)
       (cond
-        ((symbol? name) (json-string (symbol->string name)))
-        ((pair? name)
-          (string-append
-            "["
-            (string-join (map name-part->json name) ",")
-            "]"))
-        (else "[]")))
+        ((symbol? name) (symbol->string name))
+        ((pair? name) (map name-part->string name))
+        (else '())))
 
     (define (library-name-display name)
       (cond
@@ -87,123 +77,55 @@
         ((guile gauche) (symbol->string kind))
         (else "")))
 
-    (define (string-list->json strings)
-      (string-append
-        "["
-        (string-join (map json-string strings) ",")
-        "]"))
-
-    (define (library-entry-json entry)
+    (define (library-entry-sexp entry)
       (let ((kind (car entry))
             (name (cadr entry))
             (path (library-entry-path "" entry))
             (imports (filter symbol-list-value? (library-entry-imports entry)))
             (exports (filter symbol? (library-entry-exports entry))))
-        (string-append
-          "{"
-          "\"kind\":"
-          (json-string (symbol->string kind))
-          ","
-          "\"name\":"
-          (name-list->json name)
-          ","
-          "\"displayName\":"
-          (json-string (library-name-display name))
-          ","
-          "\"key\":"
-          (json-string (library-name-key name))
-          ","
-          "\"path\":"
-          (json-string path)
-          ","
-          "\"implementation\":"
-          (json-string (library-entry-implementation kind))
-          ","
-          "\"dialect\":"
-          (json-string (library-entry-dialect kind))
-          ","
-          "\"imports\":["
-          (string-join (map name-list->json imports) ",")
-          "],"
-          "\"exports\":"
-          (symbol-list->json exports)
-          "}")))
+        `(library
+          (kind ,kind)
+          (name ,(name-list->sexp name))
+          (display-name ,(library-name-display name))
+          (key ,(library-name-key name))
+          (path ,path)
+          (implementation ,(library-entry-implementation kind))
+          (dialect ,(library-entry-dialect kind))
+          (imports ,@(map name-list->sexp imports))
+          (exports ,@exports))))
 
-    (define (libraries-json manifest)
-      (string-append
-        "["
-        (string-join
-          (map library-entry-json (effective-package-libraries manifest))
-          ",")
-        "]"))
+    (define (libraries-sexp manifest)
+      (map library-entry-sexp (effective-package-libraries manifest)))
 
-    (define (registry-dependency-json dep kind)
-      (string-append
-        "{"
-        "\"name\":"
-        (json-string (name->string (alist-ref dep 'name '())))
-        ","
-        "\"req\":"
-        (json-string (alist-ref dep 'version "*"))
-        ","
-        "\"kind\":"
-        (json-string kind)
-        ","
-        "\"registry\":"
-        (if (alist-ref dep 'registry #f)
-          (json-string (alist-ref dep 'registry #f))
-          "null")
-        ","
-        "\"optional\":"
-        (if (alist-ref dep 'optional #f) "true" "false")
-        ","
-        "\"features\":"
-        (symbol-list->json (alist-ref dep 'features '()))
-        ","
-        "\"schemes\":"
-        (symbol-list->json (alist-ref dep 'schemes '()))
-        ","
-        "\"dialects\":"
-        (symbol-list->json (alist-ref dep 'dialects '()))
-        ","
-        "\"targets\":"
-        (string-list->json (alist-ref dep 'targets '()))
-        ","
-        "\"profiles\":"
-        (symbol-list->json (alist-ref dep 'profiles '()))
-        ","
-        "\"compileModes\":"
-        (symbol-list->json (alist-ref dep 'compile-modes '()))
-        "}"))
+    (define (registry-dependency-sexp dep kind)
+      `(dependency
+        (name ,(name->string (alist-ref dep 'name '())))
+        (req ,(alist-ref dep 'version "*"))
+        (kind ,(string->symbol kind))
+        (registry ,(or (alist-ref dep 'registry #f) #f))
+        (optional ,(and (alist-ref dep 'optional #f) #t))
+        (features ,@(alist-ref dep 'features '()))
+        (schemes ,@(alist-ref dep 'schemes '()))
+        (dialects ,@(alist-ref dep 'dialects '()))
+        (targets ,@(alist-ref dep 'targets '()))
+        (profiles ,@(alist-ref dep 'profiles '()))
+        (compile-modes ,@(alist-ref dep 'compile-modes '()))))
 
-    (define (registry-dependencies-list-json deps kind)
-      (string-append
-        "["
-        (string-join (map (lambda (dep) (registry-dependency-json dep kind)) deps) ",")
-        "]"))
+    (define (registry-dependencies-list-sexp deps kind)
+      (map (lambda (dep) (registry-dependency-sexp dep kind)) deps))
 
     (define (feature-registry-dependencies feature)
       (filter publish-registry-dependency?
         (parse-feature-dependencies feature)))
 
-    (define (feature-dependency-json feature)
+    (define (feature-dependency-sexp feature)
       (let ((deps (feature-registry-dependencies feature)))
-        (string-append
-          "{"
-          "\"feature\":"
-          (json-string (symbol->string (car feature)))
-          ","
-          "\"dependencies\":"
-          (registry-dependencies-list-json deps "normal")
-          "}")))
+        `(feature-dependency
+          (feature ,(car feature))
+          (dependencies ,@(registry-dependencies-list-sexp deps "normal")))))
 
-    (define (feature-dependencies-json manifest)
-      (string-append
-        "["
-        (string-join
-          (map feature-dependency-json (package-features manifest))
-          ",")
-        "]"))
+    (define (feature-dependencies-sexp manifest)
+      (map feature-dependency-sexp (package-features manifest)))
 
     (define (publish-owner manifest cmd)
       (let ((owner (package-owner manifest)))
@@ -234,18 +156,14 @@
       (or (eq? (alist-ref dep 'type #f) 'registry)
         (local-versioned-dependency? dep)))
 
-    (define (registry-dependencies-json manifest)
+    (define (registry-dependencies-sexp manifest)
       (let ((runtime (filter publish-registry-dependency?
                       (alist-ref manifest 'dependencies '())))
             (dev (filter publish-registry-dependency?
                   (alist-ref manifest 'dev-dependencies '()))))
-        (string-append
-          "["
-          (string-join
-            (append (map (lambda (dep) (registry-dependency-json dep "normal")) runtime)
-              (map (lambda (dep) (registry-dependency-json dep "dev")) dev))
-            ",")
-          "]")))
+        (append
+          (registry-dependencies-list-sexp runtime "normal")
+          (registry-dependencies-list-sexp dev "dev"))))
 
     (define (feature-names manifest)
       (map (lambda (feature) (symbol->string (car feature)))
@@ -307,73 +225,37 @@
       (capture-first-line
         (string-append "base64 " (shell-quote archive) " | tr -d '\\n'")))
 
-    (define (publish-libraries-json manifest include-metadata?)
+    (define (publish-libraries-sexp manifest include-metadata?)
       (if include-metadata?
-        (libraries-json manifest)
-        "[]"))
+        (libraries-sexp manifest)
+        '()))
 
-    (define (write-publish-json path manifest owner archive-b64 include-metadata?)
+    (define (write-publish-payload path manifest owner archive-b64 include-metadata?)
       (call-with-output-file path
         (lambda (out)
-          (display "{" out)
-          (display "\"name\":" out)
-          (display (json-string (name->string (package-name manifest))) out)
-          (display "," out)
-          (display "\"owner\":" out)
-          (display (if owner (json-string owner) "null") out)
-          (display "," out)
-          (display "\"version\":" out)
-          (display (json-string (package-version manifest)) out)
-          (display "," out)
-          (display "\"description\":" out)
-          (display (json-string (package-description manifest)) out)
-          (display "," out)
-          (display "\"license\":" out)
-          (display (json-string (package-license manifest)) out)
-          (display "," out)
-          (display "\"keywords\":" out)
-          (display (string-list->json (package-keywords manifest)) out)
-          (display "," out)
-          (display "\"homepage\":" out)
-          (display (json-string (package-homepage manifest)) out)
-          (display "," out)
-          (display "\"site\":" out)
-          (display (json-string (package-site manifest)) out)
-          (display "," out)
-          (display "\"repository\":" out)
-          (display (json-string (package-repository manifest)) out)
-          (display "," out)
-          (display "\"repo\":" out)
-          (display (json-string (package-repo manifest)) out)
-          (display "," out)
-          (display "\"documentation\":" out)
-          (display (json-string (package-documentation manifest)) out)
-          (display "," out)
-          (display "\"docs\":" out)
-          (display (json-string (package-docs manifest)) out)
-          (display "," out)
-          (display "\"readme\":" out)
-          (display (json-string (package-readme manifest)) out)
-          (display "," out)
-          (display "\"dialects\":" out)
-          (display (symbol-list->json (package-dialects manifest)) out)
-          (display "," out)
-          (display "\"features\":" out)
-          (display (string-list->json (feature-names manifest)) out)
-          (display "," out)
-          (display "\"featureDependencies\":" out)
-          (display (feature-dependencies-json manifest) out)
-          (display "," out)
-          (display "\"dependencies\":" out)
-          (display (registry-dependencies-json manifest) out)
-          (display "," out)
-          (display "\"libraries\":" out)
-          (display (publish-libraries-json manifest include-metadata?) out)
-          (display "," out)
-          (display "\"archiveBase64\":\"" out)
-          (display archive-b64 out)
-          (display "\"" out)
-          (display "}" out))))
+          (write
+            `(kons-publish
+              (name ,(name->string (package-name manifest)))
+              (owner ,(or owner #f))
+              (version ,(package-version manifest))
+              (description ,(package-description manifest))
+              (license ,(package-license manifest))
+              (keywords ,@(package-keywords manifest))
+              (homepage ,(package-homepage manifest))
+              (site ,(package-site manifest))
+              (repository ,(package-repository manifest))
+              (repo ,(package-repo manifest))
+              (documentation ,(package-documentation manifest))
+              (docs ,(package-docs manifest))
+              (readme ,(package-readme manifest))
+              (dialects ,@(package-dialects manifest))
+              (features ,@(feature-names manifest))
+              (feature-dependencies ,@(feature-dependencies-sexp manifest))
+              (dependencies ,@(registry-dependencies-sexp manifest))
+              (libraries ,@(publish-libraries-sexp manifest include-metadata?))
+              (archive-base64 ,archive-b64))
+            out)
+          (newline out))))
 
     (define (cmd-publish cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))
@@ -382,14 +264,14 @@
                         (command-string-option cmd "registry")
                         default-registry-alias))
              (archive (temporary-file-path "kons-publish.kons"))
-             (json (temporary-file-path "kons-publish.json"))
+             (payload (temporary-file-path "kons-publish.scm"))
              (owner (publish-owner manifest cmd)))
         (unless (command-flag? cmd "no-metadata")
           (require-publish-metadata manifest "publish"))
         (ensure-git-clean root (command-flag? cmd "allow-dirty"))
         (archive-package root archive (command-flag? cmd "exclude-lockfile"))
-        (write-publish-json
-          json
+        (write-publish-payload
+          payload
           manifest
           owner
           (archive-base64 archive)
@@ -404,13 +286,13 @@
                 (owner ,(if owner owner ""))
                 (version ,(package-version manifest))
                 (archive ,archive)
-                (payload ,json)))
+                (payload ,payload)))
             (list-archive archive))
           (begin
             (registry-http-upload/token
               registry
               "/api/v1/packages/new"
-              json
+              payload
               (command-string-option cmd "token"))
             (display "published ")
             (display (name->string (package-name manifest)))

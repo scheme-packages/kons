@@ -15,9 +15,6 @@
     (kons library-discovery))
 
   (begin
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (proper-list? value)
       (let loop ((item value))
         (cond
@@ -66,6 +63,4 @@
     (define (cmd-metadata cmd)
       (let ((metadata (manifest-with-effective-libraries
                        (parse-manifest (command-manifest-path cmd)))))
-        (if (json-format? (command-option cmd "format" "sexp"))
-          (write-metadata-json metadata)
-          (writeln metadata))))))
+        (writeln metadata)))))

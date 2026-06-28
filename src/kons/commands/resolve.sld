@@ -11,9 +11,4 @@
       (make-kons-command
         runner
         (kons-command-spec "resolve" cmd-resolve "Print the resolved dependency graph shape." #f #t #f #f #f)
-        (make-command-grammar
-          (list 'option "format"
-            'help:
-            "Output format: sexp or json."
-            'value-help:
-            "FORMAT"))))))
+        (make-command-grammar)))))

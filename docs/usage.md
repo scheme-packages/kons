@@ -309,31 +309,20 @@ Search and inspect packages:
 ```sh
 kons search parser --limit 10
 kons search parser --type all
-kons search parser --format json
 kons provides example/base
-kons provides example/base --format json
 kons identifier parse-token
-kons identifier parse-token --format json
 kons info example/base
-kons info example/base --format json
 kons tree
-kons tree --format json
-kons graph --format dot
-kons graph --format json
+kons graph
 kons dependency-scan
-kons dependency-scan --format json
-kons archive-scan --format json
-kons archive-scan --archive .kons/package/example-lib-0.1.0.kons --format json
+kons archive-scan
+kons archive-scan --archive .kons/package/example-lib-0.1.0.kons
 kons --scheme chez compat-scan
-kons --scheme chez compat-scan --format json
-kons license-scan --format json
+kons license-scan
 kons license-scan --directory notices
 kons resolve
-kons resolve --format json
 kons metadata
-kons metadata --format json
 kons status
-kons status --format json
 kons doctor
 ```
 

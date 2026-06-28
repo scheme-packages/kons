@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export function createPackageHandlers(ctx) {
-  const { db, config, sendJson, httpError, readJson, requireUser, requirePackageOwner, resolvePackageName, validateUsername, requireSemver, nowIso, publicPackage, packageRow, ownerRows, getUserByUsername, logAuditAction, auditLogRows } = ctx;
+  const { db, config, sendJson, httpError, readJson, requireUser, requirePackageOwner, resolvePackageName, validateUsername, requireSemver, nowIso, publicPackage, packageRow, ownerRows, getUserByUsername, logAuditAction, auditLogRows, dataArray } = ctx;
 
 function packageNameFromApiPath(pathname, suffix = "") {
   let rest = decodeURIComponent(pathname.slice("/api/v1/packages/".length));
@@ -330,8 +330,8 @@ function libraryProviders(key, url) {
     implementation: row.implementation || "",
     dialect: row.dialect || "",
     path: row.path || "",
-    imports: JSON.parse(row.imports_json || "[]"),
-    exports: JSON.parse(row.exports_json || "[]"),
+    imports: dataArray(row.imports_json),
+    exports: dataArray(row.exports_json),
     package: row.package_name,
     version: row.version,
     description: row.description,
@@ -357,10 +357,10 @@ function packageDependents(name, includeYanked = false) {
     registry: row.registry || null,
     optional: Boolean(row.optional),
     target: row.target || null,
-    schemes: JSON.parse(row.schemes_json || "[]"),
-    implementations: JSON.parse(row.implementations_json || "[]"),
-    targets: JSON.parse(row.targets_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
+    schemes: dataArray(row.schemes_json),
+    implementations: dataArray(row.implementations_json),
+    targets: dataArray(row.targets_json),
+    features: dataArray(row.features_json),
     description: row.description,
     yanked: Boolean(row.yanked),
   }));

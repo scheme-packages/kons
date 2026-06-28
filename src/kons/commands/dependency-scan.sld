@@ -11,9 +11,4 @@
       (make-kons-command
         runner
         (kons-command-spec "dependency-scan" cmd-dependency-scan "Scan source imports." #t #t #t #f #f)
-        (make-command-grammar
-          (list 'option "format"
-            'help:
-            "Output format: sexp or json."
-            'value-help:
-            "FORMAT"))))))
+        (make-command-grammar)))))

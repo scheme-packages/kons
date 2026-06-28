@@ -50,9 +50,6 @@
       (diagnostics compat-report-diagnostics)
       (translations compat-report-translations))
 
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (same-name? left right)
       (equal? left right))
 
@@ -350,9 +347,7 @@
       (newline))
 
     (define (write-compat-scan-report cmd report)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (write-report-json report)
-        (writeln (report->sexp report))))
+      (writeln (report->sexp report)))
 
     (define (cmd-compat-scan cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

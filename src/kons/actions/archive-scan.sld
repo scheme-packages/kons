@@ -42,9 +42,6 @@
       (libraries archive-scan-report-libraries)
       (identifiers archive-scan-report-identifiers))
 
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (license-status license)
       (if (and (string? license)
            (not (string=? license "")))
@@ -183,9 +180,7 @@
         (parse-manifest manifest-path)))
 
     (define (write-archive-scan-report cmd report)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (write-report-json report)
-        (writeln (report->sexp report))))
+      (writeln (report->sexp report)))
 
     (define (cmd-archive-scan cmd)
       (let ((archive (command-option cmd "archive" #f)))

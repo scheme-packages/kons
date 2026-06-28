@@ -7,6 +7,7 @@
           display-owner-list-json
           display-registry-entry)
   (import (scheme base)
+          (scheme write)
           (kons util)
           (kons registry)
           (kons options)
@@ -14,9 +15,6 @@
           (kons actions registry route))
 
   (begin
-(define (json-format? value)
-  (and value (string=? value "json")))
-
 (define (take-list items limit)
   (let loop ((items items) (limit limit) (out '()))
     (if (or (zero? limit) (null? items))
@@ -108,21 +106,8 @@
       (display-one (car items))
       (loop (cdr items) #f))))
 
-(define (json-with-format-version value)
-  (if (and (pair? value) (not (assq 'formatVersion value)))
-      (cons (cons 'formatVersion 1) value)
-      value))
-
-(define (display-json-file path)
-  (json-write
-   (json-with-format-version (registry-json-read path))
-   (current-output-port))
-  (newline))
-
 (define (display-json-or cmd json display-text)
-  (if (json-format? (command-option cmd "format" "text"))
-      (display-json-file json)
-      (display-text json)))
+  (display-text json))
 
 (define (display-search-json json)
   (let* ((data (registry-json-read json))

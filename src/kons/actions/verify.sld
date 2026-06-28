@@ -24,9 +24,6 @@
       (registry-archive-count verification-summary-registry-archive-count)
       (registry-metadata-count verification-summary-registry-metadata-count))
 
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (cached-registry-archive-path entry)
       (registry-archive-path
         (lock-entry-ref entry 'registry "default")
@@ -107,14 +104,9 @@
         (status . "ok")))
 
     (define (display-verification-summary cmd summary)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (begin
-          (json-write (verification-summary-json summary) (current-output-port))
-          (newline))
-        (begin
-          (display "verified ")
-          (displayln (verification-summary-lockfile summary))
-          (writeln (verification-summary-sexp summary)))))
+      (display "verified ")
+      (displayln (verification-summary-lockfile summary))
+      (writeln (verification-summary-sexp summary)))
 
     (define (cmd-verify cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

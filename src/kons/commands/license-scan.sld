@@ -12,11 +12,6 @@
         runner
         (kons-command-spec "license-scan" cmd-license-scan "Report package licenses." #t #t #t #f #f)
         (make-command-grammar
-          (list 'option "format"
-            'help:
-            "Output format: sexp or json."
-            'value-help:
-            "FORMAT")
           (list 'option "directory"
             'help:
             "Write THIRD_PARTY_NOTICES.txt into DIR."

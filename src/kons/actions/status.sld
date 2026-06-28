@@ -15,9 +15,6 @@
     (kons actions status-shared))
 
   (begin
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (proper-list? value)
       (let loop ((item value))
         (cond
@@ -122,6 +119,4 @@
              (features (active-features manifest cmd))
              (form (status-form manifest features cmd)))
         (ensure-supported-active-features manifest features cmd)
-        (if (json-format? (command-option cmd "format" "sexp"))
-          (write-status-json form)
-          (writeln form))))))
+        (writeln form)))))

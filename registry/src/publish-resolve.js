@@ -1,7 +1,7 @@
 import path from "node:path";
 
 export function createPublishResolve(ctx) {
-  const { db, config, publicBaseUrl, sendJson, httpError, readJson, requireUser, validatePackageOwner, decodeArchivePayload, sha256, validateArchive, packageRow, requirePackageOwner, archiveKey, putArchive, deleteArchive, nowIso, insertLibraryRows, insertSearchTermRows, logAuditAction, publicPackage, validSemverRange, versionRows, satisfies, dependencyRows, packageDownloadUrl, libraryRows, validationError, normalizeDependencies, validatePublishPayload, sparsePathForName, signingConfig, signedPayload } = ctx;
+  const { db, config, publicBaseUrl, sendJson, send, httpError, readJson, readBody, requireUser, validatePackageOwner, decodeArchivePayload, sha256, validateArchive, packageRow, requirePackageOwner, archiveKey, putArchive, deleteArchive, nowIso, insertLibraryRows, insertSearchTermRows, logAuditAction, publicPackage, validSemverRange, versionRows, satisfies, dependencyRows, packageDownloadUrl, libraryRows, validationError, normalizeDependencies, validatePublishPayload, sparsePathForName, signingConfig, signedPayload, sym, writeSexp, sexpFields, parseSexp, symbolName, fieldList, fieldValue, fieldValues, scalarString, symbolStrings, dataArray, dataValue, dataText } = ctx;
 
 function indexConfig(req) {
   const base = publicBaseUrl(req);
@@ -49,9 +49,9 @@ function signedVersionRow(name, row) {
     provenance: versionProvenance(row),
     description: row.description,
     license: row.license,
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
-    featureDependencies: JSON.parse(row.feature_dependencies_json || "[]"),
+    dialects: dataArray(row.dialects_json),
+    features: dataArray(row.features_json),
+    featureDependencies: dataArray(row.feature_dependencies_json),
     dependencies: dependencyRows(name, row.version),
   };
 }
@@ -78,9 +78,9 @@ function sparseIndexEntry(name, row) {
     checksum: row.checksum,
     provenance: versionProvenance(row),
     yanked: Boolean(row.yanked),
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
-    featureDependencies: JSON.parse(row.feature_dependencies_json || "[]"),
+    dialects: dataArray(row.dialects_json),
+    features: dataArray(row.features_json),
+    featureDependencies: dataArray(row.feature_dependencies_json),
   };
 }
 
@@ -92,15 +92,181 @@ function signedSparseIndexEntry(name, row) {
 }
 
 function indexLines(name) {
-  return versionRows(name)
-    .reverse()
-    .map((row) => JSON.stringify(signedSparseIndexEntry(name, row)))
-    .join("\n") + "\n";
+  const entries = versionRows(name).reverse().map((row) => sparseIndexEntry(name, row));
+  return writeSexp([sym("kons-registry-index"), ...entries.map((entry) => sparseEntrySexp(entry))]) + "\n";
+}
+
+function depSexp(dep) {
+  return sexpFields("dependency", {
+    name: dep.name,
+    req: dep.req,
+    kind: sym(dep.kind || "normal"),
+    registry: dep.registry || false,
+    optional: Boolean(dep.optional),
+    target: dep.target || false,
+    schemes: symbolStrings(dep.schemes || []).map(sym),
+    implementations: symbolStrings(dep.implementations || []).map(sym),
+    dialects: symbolStrings(dep.dialects || []).map(sym),
+    targets: dep.targets || [],
+    profiles: symbolStrings(dep.profiles || []).map(sym),
+    "compile-modes": symbolStrings(dep.compileModes || []).map(sym),
+    features: symbolStrings(dep.features || []).map(sym),
+  });
+}
+
+function featureDepSexp(item) {
+  return sexpFields("feature-dependency", {
+    feature: sym(item.feature || "unknown"),
+    dependencies: (item.dependencies || []).map(depSexp),
+  });
+}
+
+function provenanceSexp(provenance) {
+  const publishedBy = provenance.publishedBy || {};
+  return sexpFields("provenance", {
+    "published-by": sexpFields("user", {
+      id: publishedBy.id || false,
+      username: publishedBy.username || "",
+      "display-name": publishedBy.displayName || "",
+    }),
+    "published-at": provenance.publishedAt || "",
+    checksum: provenance.checksum || "",
+    size: provenance.size || 0,
+  });
+}
+
+function versionSexp(row) {
+  return sexpFields("version", {
+    number: row.version,
+    checksum: row.checksum,
+    size: row.size,
+    "download-url": row.downloadUrl || row.download || "",
+    yanked: Boolean(row.yanked),
+    "published-at": row.publishedAt || "",
+    provenance: row.provenance ? provenanceSexp(row.provenance) : false,
+    description: row.description || "",
+    license: row.license || "",
+    dialects: symbolStrings(row.dialects || []).map(sym),
+    features: symbolStrings(row.features || []).map(sym),
+    "feature-dependencies": (row.featureDependencies || []).map(featureDepSexp),
+    dependencies: (row.dependencies || row.deps || []).map(depSexp),
+  });
+}
+
+function sparseEntrySexp(entry) {
+  return sexpFields("entry", {
+    name: entry.name,
+    version: entry.vers || entry.version,
+    dependencies: (entry.deps || entry.dependencies || []).map(depSexp),
+    checksum: entry.checksum,
+    provenance: entry.provenance ? provenanceSexp(entry.provenance) : false,
+    yanked: Boolean(entry.yanked),
+    dialects: symbolStrings(entry.dialects || []).map(sym),
+    features: symbolStrings(entry.features || []).map(sym),
+    "feature-dependencies": (entry.featureDependencies || []).map(featureDepSexp),
+  });
+}
+
+function versionsSexp(payload) {
+  return writeSexp(sexpFields("kons-registry-versions", {
+    package: payload.package,
+    versions: payload.versions.map(versionSexp),
+  })) + "\n";
+}
+
+function fieldMap(form, expected) {
+  if (!Array.isArray(form) || symbolName(form[0]) !== expected) {
+    throw httpError(400, `expected ${expected} S-expression payload`);
+  }
+  return fieldList(form);
+}
+
+function parseDependencyForm(form) {
+  const fields = fieldMap(form, "dependency");
+  return {
+    name: scalarString(fieldValue(fields, "name")),
+    req: scalarString(fieldValue(fields, "req", fieldValue(fields, "version", "*")), "*"),
+    kind: symbolName(fieldValue(fields, "kind", sym("normal"))) || "normal",
+    registry: scalarString(fieldValue(fields, "registry", false), "") || null,
+    optional: Boolean(fieldValue(fields, "optional", false)),
+    target: scalarString(fieldValue(fields, "target", false), "") || null,
+    schemes: symbolStrings(fieldValues(fields, "schemes")),
+    implementations: symbolStrings(fieldValues(fields, "implementations")),
+    dialects: symbolStrings(fieldValues(fields, "dialects")),
+    targets: fieldValues(fields, "targets").map((item) => scalarString(item)).filter(Boolean),
+    profiles: symbolStrings(fieldValues(fields, "profiles")),
+    compileModes: symbolStrings(fieldValues(fields, "compile-modes")),
+    features: symbolStrings(fieldValues(fields, "features")),
+  };
+}
+
+function parseFeatureDependencyForm(form) {
+  const fields = fieldMap(form, "feature-dependency");
+  return {
+    feature: symbolName(fieldValue(fields, "feature", sym(""))),
+    dependencies: fieldValues(fields, "dependencies").map(parseDependencyForm),
+  };
+}
+
+function parseLibraryName(value) {
+  if (Array.isArray(value)) return symbolStrings(value);
+  return scalarString(value);
+}
+
+function parseLibraryForm(form) {
+  const fields = fieldMap(form, "library");
+  return {
+    kind: symbolName(fieldValue(fields, "kind", sym("r7rs"))) || "r7rs",
+    name: parseLibraryName(fieldValue(fields, "name", "")),
+    displayName: scalarString(fieldValue(fields, "display-name", "")),
+    key: scalarString(fieldValue(fields, "key", "")),
+    path: scalarString(fieldValue(fields, "path", "")),
+    implementation: scalarString(fieldValue(fields, "implementation", "")),
+    dialect: scalarString(fieldValue(fields, "dialect", "")),
+    imports: fieldValues(fields, "imports").map(parseLibraryName),
+    exports: symbolStrings(fieldValues(fields, "exports")),
+  };
+}
+
+function publishPayloadFromSexp(text) {
+  const forms = parseSexp(text);
+  if (forms.length !== 1) throw httpError(400, "expected one S-expression publish payload");
+  const fields = fieldMap(forms[0], "kons-publish");
+  return {
+    name: scalarString(fieldValue(fields, "name")),
+    owner: scalarString(fieldValue(fields, "owner", "")),
+    version: scalarString(fieldValue(fields, "version")),
+    description: scalarString(fieldValue(fields, "description")),
+    license: scalarString(fieldValue(fields, "license")),
+    keywords: fieldValues(fields, "keywords").map((item) => scalarString(item)).filter(Boolean),
+    homepage: scalarString(fieldValue(fields, "homepage", "")),
+    site: scalarString(fieldValue(fields, "site", "")),
+    repository: scalarString(fieldValue(fields, "repository", "")),
+    repo: scalarString(fieldValue(fields, "repo", "")),
+    documentation: scalarString(fieldValue(fields, "documentation", "")),
+    docs: scalarString(fieldValue(fields, "docs", "")),
+    readme: scalarString(fieldValue(fields, "readme", "")),
+    dialects: symbolStrings(fieldValues(fields, "dialects")),
+    features: fieldValues(fields, "features").map((item) => scalarString(item)).filter(Boolean),
+    featureDependencies: fieldValues(fields, "feature-dependencies").map(parseFeatureDependencyForm),
+    dependencies: fieldValues(fields, "dependencies").map(parseDependencyForm),
+    libraries: fieldValues(fields, "libraries").map(parseLibraryForm),
+    archiveBase64: scalarString(fieldValue(fields, "archive-base64")),
+  };
+}
+
+async function readPublishPayload(req) {
+  const body = await readBody(req, config.maxArchiveBytes * 2);
+  if (!body.length) return {};
+  const text = body.toString("utf8");
+  const contentType = String(req.headers["content-type"] || "");
+  if (contentType.includes("application/json") || text.trim().startsWith("{")) return JSON.parse(text);
+  return publishPayloadFromSexp(text);
 }
 
 async function publishPackage(req, res) {
   const user = requireUser(req);
-  const payload = await readJson(req, config.maxArchiveBytes * 2);
+  const payload = await readPublishPayload(req);
   const {
     name: payloadName,
     version,
@@ -148,7 +314,7 @@ async function publishPackage(req, res) {
         homepage,
         repository,
         documentation,
-        JSON.stringify(keywords),
+        dataText(keywords),
         user.id,
         now,
         now
@@ -170,7 +336,7 @@ async function publishPackage(req, res) {
         homepage,
         repository,
         documentation,
-        JSON.stringify(keywords),
+        dataText(keywords),
         now,
         name
       );
@@ -192,11 +358,11 @@ async function publishPackage(req, res) {
       now,
       description,
       license,
-      JSON.stringify(dialects),
-      JSON.stringify(features),
-      JSON.stringify(featureDependencies),
+      dataText(dialects),
+      dataText(features),
+      dataText(featureDependencies),
       validation.readme,
-      JSON.stringify(validation.manifest)
+      dataText(validation.manifest)
     );
 
     for (const dep of dependencies) {
@@ -213,13 +379,13 @@ async function publishPackage(req, res) {
         dep.registry,
         dep.optional ? 1 : 0,
         dep.target,
-        JSON.stringify(dep.schemes),
-        JSON.stringify(dep.implementations),
-        JSON.stringify(dep.dialects),
-        JSON.stringify(dep.targets),
-        JSON.stringify(dep.profiles),
-        JSON.stringify(dep.compileModes),
-        JSON.stringify(dep.features)
+        dataText(dep.schemes),
+        dataText(dep.implementations),
+        dataText(dep.dialects),
+        dataText(dep.targets),
+        dataText(dep.profiles),
+        dataText(dep.compileModes),
+        dataText(dep.features)
       );
     }
     insertLibraryRows(name, version, libraries);
@@ -282,9 +448,9 @@ function packageVersionList(name, includeYanked = false, requireSigned = false) 
         provenance: versionProvenance(row),
         description: row.description,
         license: row.license,
-        dialects: JSON.parse(row.dialects_json || "[]"),
-        features: JSON.parse(row.features_json || "[]"),
-        featureDependencies: JSON.parse(row.feature_dependencies_json || "[]"),
+        dialects: dataArray(row.dialects_json),
+        features: dataArray(row.features_json),
+        featureDependencies: dataArray(row.feature_dependencies_json),
         dependencies: dependencyRows(name, row.version),
       })),
   };
@@ -314,9 +480,9 @@ function packageVersionMetadata(name, version) {
     provenance: versionProvenance(row),
     description: row.description,
     license: row.license,
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
-    featureDependencies: JSON.parse(row.feature_dependencies_json || "[]"),
+    dialects: dataArray(row.dialects_json),
+    features: dataArray(row.features_json),
+    featureDependencies: dataArray(row.feature_dependencies_json),
     dependencies: dependencyRows(name, row.version),
     libraries: libraryRows(name, row.version),
   };
@@ -328,7 +494,7 @@ function packageVersionManifest(name, version) {
   return {
     package: name,
     version,
-    manifest: JSON.parse(row.manifest_json || "{}"),
+    manifest: dataValue(row.manifest_json || "{}"),
   };
 }
 
@@ -379,7 +545,7 @@ function optionalDependencyActive(dep, features) {
 }
 
 function featureDependencyRows(row, features) {
-  return JSON.parse(row.feature_dependencies_json || "[]")
+  return dataArray(row.feature_dependencies_json)
     .filter((item) => (features || []).includes(item.feature))
     .flatMap((item) => item.dependencies || []);
 }
@@ -607,10 +773,10 @@ function resolveGraphPackage(name, selectedPackage) {
     provenance: versionProvenance(row),
     description: row.description,
     license: row.license,
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    availableFeatures: JSON.parse(row.features_json || "[]"),
+    dialects: dataArray(row.dialects_json),
+    availableFeatures: dataArray(row.features_json),
     features: selectedPackage.features || [],
-    featureDependencies: JSON.parse(row.feature_dependencies_json || "[]"),
+    featureDependencies: dataArray(row.feature_dependencies_json),
     dependencies: dependencyRows(name, row.version),
   };
 }
@@ -681,5 +847,5 @@ async function resolvePackages(req, res) {
   sendJson(res, 200, response);
 }
 
-  return { indexConfig, indexLines, publishPackage, resolvePackageVersion, packageVersionList, packageVersionMetadata, packageVersionManifest, resolvePackages };
+  return { indexConfig, indexLines, versionsSexp, publishPackage, resolvePackageVersion, packageVersionList, packageVersionMetadata, packageVersionManifest, resolvePackages };
 }

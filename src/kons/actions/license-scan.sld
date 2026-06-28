@@ -16,9 +16,6 @@
     (kons actions tree-clean))
 
   (begin
-    (define (json-format? value)
-      (and value (string=? value "json")))
-
     (define (name-value->string value)
       (cond
         ((null? value) "")
@@ -339,9 +336,7 @@
 
     (define (write-license-report cmd manifest report)
       (write-notices-file! manifest report cmd)
-      (if (json-format? (command-option cmd "format" "sexp"))
-        (write-report-json report)
-        (writeln report)))
+      (writeln report))
 
     (define (cmd-license-scan cmd)
       (let* ((manifest (parse-manifest (command-manifest-path cmd)))

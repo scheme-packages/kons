@@ -1,5 +1,5 @@
 export function createCore(ctx) {
-  const { db, config, nowIso, randomToken, sha256, parseCookies, httpError } = ctx;
+  const { db, config, nowIso, randomToken, sha256, parseCookies, httpError, dataArray, dataObject, dataText } = ctx;
 
 function canonicalPackageName(name) {
   return String(name || "").trim().toLowerCase();
@@ -368,13 +368,13 @@ function dependencyRows(name, version) {
     registry: row.registry || null,
     optional: Boolean(row.optional),
     target: row.target || null,
-    schemes: JSON.parse(row.schemes_json || "[]"),
-    implementations: JSON.parse(row.implementations_json || "[]"),
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    targets: JSON.parse(row.targets_json || "[]"),
-    profiles: JSON.parse(row.profiles_json || "[]"),
-    compileModes: JSON.parse(row.compile_modes_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
+    schemes: dataArray(row.schemes_json),
+    implementations: dataArray(row.implementations_json),
+    dialects: dataArray(row.dialects_json),
+    targets: dataArray(row.targets_json),
+    profiles: dataArray(row.profiles_json),
+    compileModes: dataArray(row.compile_modes_json),
+    features: dataArray(row.features_json),
   }));
 }
 
@@ -389,8 +389,8 @@ function libraryRows(name, version) {
     name: row.library_name,
     key: row.library_key,
     path: row.path || "",
-    imports: JSON.parse(row.imports_json || "[]"),
-    exports: JSON.parse(row.exports_json || "[]"),
+    imports: dataArray(row.imports_json),
+    exports: dataArray(row.exports_json),
     implementation: row.implementation || "",
     dialect: row.dialect || "",
   }));
@@ -415,8 +415,8 @@ function insertLibraryRows(name, version, libraries) {
       library.name,
       library.key,
       library.path,
-      JSON.stringify(library.imports),
-      JSON.stringify(library.exports),
+      dataText(library.imports),
+      dataText(library.exports),
       library.implementation,
       library.dialect
     );
@@ -473,9 +473,9 @@ function insertSearchTermRows(name, version, metadata) {
   }
 }
 
-function jsonArray(value) {
+function structuredArray(value) {
   try {
-    const parsed = JSON.parse(value || "[]");
+    const parsed = dataArray(value);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -508,9 +508,9 @@ function backfillPackageSearchTerms() {
       insertSearchTermRows(row.name, row.version, {
         name: row.name,
         description: row.description,
-        keywords: jsonArray(row.keywords_json),
-        dialects: jsonArray(row.dialects_json),
-        features: jsonArray(row.features_json),
+        keywords: structuredArray(row.keywords_json),
+        dialects: structuredArray(row.dialects_json),
+        features: structuredArray(row.features_json),
         dependencies: dependencyRows(row.name, row.version),
         libraries: libraryRows(row.name, row.version),
       });
@@ -577,7 +577,7 @@ function auditLogRows(packageName, limit = 100) {
     actor: row.actor_id
       ? { id: row.actor_id, username: row.actor_username || "" }
       : null,
-    details: JSON.parse(row.details_json || "{}"),
+    details: dataObject(row.details_json),
     createdAt: row.created_at,
   }));
 }
@@ -624,8 +624,8 @@ function publicPackage(name, viewer = null) {
     yanked: Boolean(row.yanked),
     description: row.description,
     license: row.license,
-    dialects: JSON.parse(row.dialects_json || "[]"),
-    features: JSON.parse(row.features_json || "[]"),
+    dialects: dataArray(row.dialects_json),
+    features: dataArray(row.features_json),
     readme: row.readme || "",
     downloads: Number(row.download_count || 0),
     lastDownloadedAt: row.last_downloaded_at || null,
@@ -645,7 +645,7 @@ function publicPackage(name, viewer = null) {
     documentation: pkg.documentation,
     docs: pkg.documentation,
     readme: latest?.readme || "",
-    keywords: JSON.parse(pkg.keywords_json || "[]"),
+    keywords: dataArray(pkg.keywords_json),
     latest,
     versions,
     downloads,

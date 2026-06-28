@@ -12,12 +12,13 @@ import { createRateLimiter } from "./rate-limit.js";
 import { createRoute } from "./routes.js";
 import { createSigning } from "./signing.js";
 import { smtpConfigured } from "./smtp.js";
+import * as sexp from "./sexp.js";
 
 const config = createConfig(process.env);
 const db = await openRegistryDatabase(config);
 
 httpUtils.bindHttpConfig(config);
-const ctx = { db, config, ...httpUtils };
+const ctx = { db, config, ...httpUtils, ...sexp };
 Object.assign(ctx, createCore(ctx));
 Object.assign(ctx, createArchive(ctx));
 Object.assign(ctx, createPayloadValidation(ctx));
