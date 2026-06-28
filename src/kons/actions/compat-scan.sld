@@ -160,7 +160,9 @@
         (cond
           ((name-present? name provided-names)
             (make-import-diagnostic 'provided 'local-library import))
-          ((and translation-active? (r7rs-import-set-translatable? spec))
+          ((and translation-active?
+             (name-head? name "scheme")
+             (r7rs-import-set-translatable? spec))
             (make-import-diagnostic 'provided 'translated-standard-library import))
           ((and translation-active? (name-head? name "scheme"))
             (make-import-diagnostic 'implementation-unsupported 'translation-mapping import))

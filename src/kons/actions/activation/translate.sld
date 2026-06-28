@@ -142,49 +142,20 @@
       (and (pair? name)
         (eq? (car name) 'scheme)))
 
+    (define (r7rs-library-name-part->r6rs part)
+      (if (number? part)
+        (string->symbol (string-append ":" (number->string part)))
+        part))
+
+    (define (r7rs-library-name->r6rs name)
+      (map r7rs-library-name-part->r6rs name))
+
     (define (r7rs-standard-library->r6rs-imports name)
-      (cond
-        ((not (r7rs-standard-library-name? name)) #f)
-        ((equal? name '(scheme base)) '((rnrs base)))
-        ((equal? name '(scheme case-lambda)) '((rnrs control)))
-        ((equal? name '(scheme char)) '((rnrs unicode)))
-        ((equal? name '(scheme complex)) '((rnrs base)))
-        ((equal? name '(scheme cxr)) '((rnrs lists)))
-        ((equal? name '(scheme eval)) '((rnrs eval)))
-        ((equal? name '(scheme file)) '((rnrs files)))
-        ((equal? name '(scheme inexact)) '((rnrs arithmetic flonums)))
-        ((equal? name '(scheme process-context)) '((rnrs programs)))
-        ((equal? name '(scheme read)) '((rnrs io simple)))
-        ((equal? name '(scheme write)) '((rnrs io simple)))
-        ((equal? name '(scheme r5rs)) '((rnrs r5rs)))
-        (else #f)))
-
-    (define r7rs-lazy-r6rs-identifiers '(delay force))
-
-    (define (r7rs-lazy-r6rs-identifier? name)
-      (and (symbol? name) (memq name r7rs-lazy-r6rs-identifiers) #t))
-
-    (define (r7rs-lazy-only-identifiers? names)
-      (let loop ((items names))
-        (or (null? items)
-          (and (r7rs-lazy-r6rs-identifier? (car items))
-            (loop (cdr items))))))
-
-    (define (r7rs-lazy-only-import->r6rs spec)
-      (and (pair? spec)
-        (eq? (car spec) 'only)
-        (pair? (cdr spec))
-        (equal? (cadr spec) '(scheme lazy))
-        (r7rs-lazy-only-identifiers? (cddr spec))
-        (list (append '(only (rnrs r5rs)) (cddr spec)))))
+      (and (r7rs-standard-library-name? name)
+        (list (r7rs-library-name->r6rs name))))
 
     (define (r7rs-import-set->r6rs spec)
       (cond
-        ((r7rs-lazy-only-import->r6rs spec))
-        ((symbol-list-value? spec)
-          (if (r7rs-standard-library-name? spec)
-            (r7rs-standard-library->r6rs-imports spec)
-            (list spec)))
         ((and (pair? spec)
             (memq (car spec) '(only except prefix rename))
             (pair? (cdr spec)))
@@ -195,6 +166,21 @@
                   (cons (car inner)
                     (cddr spec))))
               #f)))
+        ((and (pair? spec)
+            (eq? (car spec) 'srfi)
+            (pair? (cdr spec))
+            (number? (cadr spec)))
+          (list
+            (cons 'srfi
+              (cons
+                (string->symbol
+                  (string-append ":" (number->string (cadr spec))))
+                (cddr spec)))))
+        ((and (pair? spec)
+            (memq (car spec) '(for library)))
+          (list `(library ,(r7rs-library-name->r6rs spec))))
+        ((symbol-list-value? spec)
+          (list (r7rs-library-name->r6rs spec)))
         (else (list spec))))
 
     (define (r7rs-import-set-translatable? spec)
@@ -506,9 +492,9 @@
              (exports (translation-state-exports state))
              (imports (dedupe-import-sets (translation-state-imports state)))
              (body (translation-state-body state)))
-        `(library ,name
+        `(library ,(r7rs-library-name->r6rs name)
           (export ,@exports)
-          (import ,@(if (null? imports) '((rnrs)) imports))
+          (import ,@imports)
           ,@body)))
 
     (define (library-form-for-entry entry)
@@ -525,7 +511,9 @@
     (define (translation-library-report-for-entry build-root entry context)
       (let* ((name (cadr entry))
              (source (library-entry-path "" entry))
-             (output (r6rs-library-source-path build-root name))
+             (output (r6rs-library-source-path
+                       build-root
+                       (r7rs-library-name->r6rs name)))
              (expr (library-form-for-entry entry))
              (unsupported
                (if expr
@@ -604,7 +592,9 @@
     (define (translated-library-for-entry build-root entry context)
       (let* ((name (cadr entry))
              (source (library-entry-path "" entry))
-             (output (r6rs-library-source-path build-root name))
+             (output (r6rs-library-source-path
+                       build-root
+                       (r7rs-library-name->r6rs name)))
              (expr (library-form-for-entry entry)))
         (unless expr
           (manifest-error "R7RS library source not found for translation" name source))
