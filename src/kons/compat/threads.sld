@@ -79,10 +79,6 @@
 
     (define (job-threads-available?)
       (cond-expand
-        ;; Capy can spawn threads, but shell-backed jobs can leave the runner
-        ;; burning CPU after child processes exit. Keep Kons job execution
-        ;; sequential under Capy until that runtime interaction is fixed.
-        (capy #f)
         (else (threads-available?))))
 
     (define (default-worker-count)

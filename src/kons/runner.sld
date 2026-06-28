@@ -143,6 +143,87 @@
           (path-join package-root (package-source-path package-manifest)))
         package-root)))
 
+(define (lock-entry-rest entry key)
+  (let ((field (and (pair? entry) (assq key (cdr entry)))))
+    (if field (cdr field) '())))
+
+(define (path-component-unsafe? item)
+  (or (string=? item "")
+      (string=? item ".")
+      (string=? item "..")))
+
+(define (safe-relative-path? path)
+  (and (string? path)
+       (not (string=? path ""))
+       (not (absolute-path? path))
+       (let loop ((items (string-split path #\/)))
+         (or (null? items)
+             (and (not (path-component-unsafe? (car items)))
+                  (loop (cdr items)))))))
+
+(define (scheme-library-file? path)
+  (or (string-suffix? ".sld" path)
+      (string-suffix? ".sls" path)
+      (string-suffix? ".scm" path)))
+
+(define (hidden-path-entry? entry)
+  (and (> (string-length entry) 0)
+       (char=? (string-ref entry 0) #\.)))
+
+(define (directory-has-scheme-library? dir)
+  (and (file-exists? dir)
+       (file-directory? dir)
+       (let scan-dir ((current dir))
+         (let loop ((entries (directory-list current)))
+           (cond
+            ((null? entries) #f)
+            (else
+             (let ((path (path-join current (car entries))))
+               (cond
+                ((and (file-directory? path)
+                      (not (hidden-path-entry? (car entries))))
+                 (or (scan-dir path) (loop (cdr entries))))
+                ((and (file-exists? path)
+                      (scheme-library-file? path))
+                 #t)
+                (else (loop (cdr entries)))))))))))
+
+(define (locked-akku-load-path-roots entry root)
+  (let loop ((items (lock-entry-rest entry 'load-paths)) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((safe-relative-path? (car items))
+      (loop (cdr items) (cons (path-join root (car items)) out)))
+     (else
+      (dependency-error "unsafe Akku load path in lockfile"
+                        (lock-entry-ref entry 'name '())
+                        (car items))))))
+
+(define (existing-common-akku-source-roots root)
+  (let loop ((items '("src" "lib" "source")) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     (else
+      (let ((candidate (path-join root (car items))))
+        (if (directory-has-scheme-library? candidate)
+            (loop (cdr items) (cons candidate out))
+            (loop (cdr items) out)))))))
+
+(define (discovered-akku-source-roots root)
+  (let ((common (existing-common-akku-source-roots root)))
+    (cond
+     ((not (null? common)) common)
+     ((directory-has-scheme-library? root) (list root))
+     (else (list root)))))
+
+(define (locked-akku-entry-source-roots entry root)
+  (let ((load-paths (locked-akku-load-path-roots entry root)))
+    (cond
+     ((not (null? load-paths)) load-paths)
+     ((file-exists? (path-join root "kons.scm"))
+      (list (source-root-from-package-root root)))
+     (else (discovered-akku-source-roots root)))))
+
 (define-record-type <missing-materialization>
   (make-missing-materialization entry root reason archive)
   missing-materialization?
@@ -167,9 +248,24 @@
           (unless (file-exists? root)
             (dependency-error "locked dependency is not materialized; run `kons fetch` first"
                  (lock-entry-ref entry 'name '())))
-          (source-root-from-package-root
-           (subpath-package-root root (lock-entry-ref entry 'subpath #f))))
+          (let ((package-root (subpath-package-root root (lock-entry-ref entry 'subpath #f))))
+            (if (eq? (lock-entry-type entry) 'akku)
+                (car (locked-akku-entry-source-roots entry package-root))
+                (source-root-from-package-root package-root))))
         #f)))
+
+(define (locked-entry-source-roots entry . maybe-manifest)
+  (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
+    (if root
+        (begin
+          (unless (file-exists? root)
+            (dependency-error "locked dependency is not materialized; run `kons fetch` first"
+                 (lock-entry-ref entry 'name '())))
+          (let ((package-root (subpath-package-root root (lock-entry-ref entry 'subpath #f))))
+            (if (eq? (lock-entry-type entry) 'akku)
+                (locked-akku-entry-source-roots entry package-root)
+                (list (source-root-from-package-root package-root)))))
+        '())))
 
 (define (locked-entry-materialized? entry . maybe-manifest)
   (let ((root (apply locked-entry-expected-root entry maybe-manifest)))
@@ -250,10 +346,8 @@
      ((not (locked-entry-in-scope? (car entries) include-dev?))
       (loop (cdr entries) out))
      (else
-      (let ((root (apply locked-entry-source-root (car entries) maybe-manifest)))
-        (if root
-            (loop (cdr entries) (cons root out))
-            (loop (cdr entries) out)))))))
+      (let ((roots (apply locked-entry-source-roots (car entries) maybe-manifest)))
+        (loop (cdr entries) (append (reverse roots) out)))))))
 
 (define (project-config-path manifest)
   (path-join (manifest-root manifest) ".kons/config.scm"))

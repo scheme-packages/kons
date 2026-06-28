@@ -28,11 +28,11 @@
 
 (define manifest-version-fields
   '(synopsis description authors homepage license scripts lock source
-             notice-files extra-files depends depends/dev conflicts))
+             install notice-files extra-files depends depends/dev conflicts))
 
 (define index-version-fields
   '(version synopsis description authors homepage license scripts lock source
-            notice-files extra-files depends depends/dev conflicts))
+            install notice-files extra-files depends depends/dev conflicts))
 
 (define lock-project-fields
   '(name location install installer scripts tag revision content))

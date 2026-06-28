@@ -92,7 +92,8 @@
     (akku-depends/dev . ,(akku-version-depends/dev version))
     (akku-conflicts . ,(akku-version-conflicts version))
     (akku-lock . ,(akku-version-lock version))
-    (akku-source . ,(akku-version-source version))))
+    (akku-source . ,(akku-version-source version))
+    (install . ,(akku-ref (akku-version-properties version) 'install '()))))
 
 (define (akku-package->candidates package source)
   (map (lambda (version)
@@ -177,6 +178,12 @@
     (and (>= text-len prefix-len)
          (string=? prefix (substring text 0 prefix-len)))))
 
+(define (join-strings items sep)
+  (cond
+   ((null? items) "")
+   ((null? (cdr items)) (car items))
+   (else (string-append (car items) sep (join-strings (cdr items) sep)))))
+
 (define (internal-akku-name? name)
   (and (string? name)
        (or (string-prefix? "akku/string/" name)
@@ -186,11 +193,11 @@
   (cond
    ((string-prefix? "akku/string/" name)
     (substring name 12 (string-length name)))
-   ((string-prefix? "akku/list/" name)
-    (string-append
-     "("
-     (string-join (string-split (substring name 10 (string-length name)) #\/) " ")
-     ")"))
+	   ((string-prefix? "akku/list/" name)
+	    (string-append
+	     "("
+	     (join-strings (string-split (substring name 10 (string-length name)) #\/) " ")
+	     ")"))
    (else name)))
 
 (define (akku-failure-details details candidates)

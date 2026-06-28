@@ -19,6 +19,7 @@
   (import (scheme base)
           (scheme file)
           (scheme write)
+          (kons compat files)
           (kons util))
 
   (begin
@@ -83,8 +84,10 @@
   (capture-first-line
    (string-append "sha1sum " (shell-quote path) " | awk '{print $1}'")))
 
-(define (configured-akku-key-files)
-  (let* ((keys-dir (path-join (path-join (path-join (kons-home) "config") "akku") "keys.d"))
+(define default-akku-archive-key-file "akku-archive-2018.gpg")
+
+(define (configured-akku-key-files-in keys-dir)
+  (let* (
          (result
           (capture-command-lines/status
            (string-append
@@ -94,9 +97,52 @@
             "fi"))))
     (if (= (car result) 0) (cadr result) '())))
 
+(define (configured-akku-key-files)
+  (configured-akku-key-files-in
+   (path-join (path-join (path-join (kons-home) "config") "akku") "keys.d")))
+
+(define (default-akku-key-file-paths)
+  (list
+   (path-join
+    (path-join (path-join (path-join (kons-home) "lib") "bin") "kons")
+    (path-join
+     (path-join (path-join "src" "kons") "akku")
+     (path-join "keys.d" default-akku-archive-key-file)))
+   (path-join
+    (current-directory)
+    (path-join
+     (path-join (path-join "src" "kons") "akku")
+     (path-join "keys.d" default-akku-archive-key-file)))))
+
+(define (existing-key-files paths)
+  (let loop ((items paths) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((file-exists? (car items)) (loop (cdr items) (cons (car items) out)))
+     (else (loop (cdr items) out)))))
+
+(define (member-string? value values)
+  (let loop ((items values))
+    (cond
+     ((null? items) #f)
+     ((string=? value (car items)) #t)
+     (else (loop (cdr items))))))
+
+(define (dedupe-key-files files)
+  (let loop ((items files) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((member-string? (car items) out) (loop (cdr items) out))
+     (else (loop (cdr items) (cons (car items) out))))))
+
+(define (default-akku-key-files)
+  (existing-key-files (default-akku-key-file-paths)))
+
 (define (normalize-key-files key-files)
   (cond
-   ((not key-files) (configured-akku-key-files))
+   ((not key-files) (dedupe-key-files
+                     (append (configured-akku-key-files)
+                             (default-akku-key-files))))
    ((list? key-files) key-files)
    (else (dependency-error "Akku trusted keyring list is invalid" key-files))))
 

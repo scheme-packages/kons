@@ -608,23 +608,88 @@
           (loop (+ i 1))
           (substring s i len)))))
 
+(define (trim-trailing-space s)
+  (let loop ((i (- (string-length s) 1)))
+    (cond
+     ((< i 0) "")
+     ((char-whitespace? (string-ref s i)) (loop (- i 1)))
+     (else (substring s 0 (+ i 1))))))
+
+(define (trim-space s)
+  (trim-trailing-space (trim-leading-space s)))
+
+(define (split-whitespace s)
+  (let ((len (string-length s)))
+    (let loop ((i 0) (start #f) (out '()))
+      (cond
+       ((= i len)
+        (reverse
+         (if start
+             (cons (substring s start len) out)
+             out)))
+       ((char-whitespace? (string-ref s i))
+        (if start
+            (loop (+ i 1) #f (cons (substring s start i) out))
+            (loop (+ i 1) #f out)))
+       (start (loop (+ i 1) start out))
+       (else (loop (+ i 1) i out))))))
+
+(define (join-strings items sep)
+  (cond
+   ((null? items) "")
+   ((null? (cdr items)) (car items))
+   (else (string-append (car items) sep (join-strings (cdr items) sep)))))
+
+(define (semver-single-requirement? req)
+  (and (not (string=? req ""))
+       (cond
+        ((string=? req "*") #t)
+        ((or (char=? (string-ref req 0) #\^) (char=? (string-ref req 0) #\~))
+         (semver-version? (partial-semver->full (trim-leading-space (substring req 1 (string-length req))))))
+        ((string-prefix? ">=" req)
+         (semver-version? (partial-semver->full (trim-leading-space (substring req 2 (string-length req))))))
+        ((string-prefix? "<=" req)
+         (semver-version? (partial-semver->full (trim-leading-space (substring req 2 (string-length req))))))
+        ((or (char=? (string-ref req 0) #\>)
+             (char=? (string-ref req 0) #\<)
+             (char=? (string-ref req 0) #\=))
+         (semver-version? (partial-semver->full (trim-leading-space (substring req 1 (string-length req))))))
+        ((semver-wildcard? req) #t)
+        (else (semver-version? (partial-semver->full req))))))
+
+(define (semver-compound-requirement? req)
+  (let ((parts (split-whitespace req)))
+    (and (pair? parts)
+         (let loop ((items parts))
+           (cond
+            ((null? items) #t)
+            ((semver-single-requirement? (car items)) (loop (cdr items)))
+            (else #f))))))
+
+(define (semver-disjunctive-requirement? req)
+  (let ((parts (split-whitespace req)))
+    (let loop ((items parts) (clause '()) (saw-or? #f))
+      (cond
+       ((null? items)
+        (and saw-or?
+             (pair? clause)
+             (semver-compound-requirement?
+              (join-strings (reverse clause) " "))))
+       ((string=? (car items) "||")
+        (and (pair? clause)
+             (semver-compound-requirement?
+              (join-strings (reverse clause) " "))
+             (loop (cdr items) '() #t)))
+       (else (loop (cdr items) (cons (car items) clause) saw-or?))))))
+
 (define (semver-requirement? value)
   (and (string? value)
-       (let ((req (trim-leading-space value)))
+       (let ((req (trim-space value)))
          (cond
           ((or (string=? req "") (string=? req "*")) #t)
-          ((or (char=? (string-ref req 0) #\^) (char=? (string-ref req 0) #\~))
-           (semver-version? (partial-semver->full (substring req 1 (string-length req)))))
-          ((string-prefix? ">=" req)
-           (semver-version? (partial-semver->full (trim-leading-space (substring req 2 (string-length req))))))
-          ((string-prefix? "<=" req)
-           (semver-version? (partial-semver->full (trim-leading-space (substring req 2 (string-length req))))))
-          ((or (char=? (string-ref req 0) #\>)
-               (char=? (string-ref req 0) #\<)
-               (char=? (string-ref req 0) #\=))
-           (semver-version? (partial-semver->full (trim-leading-space (substring req 1 (string-length req))))))
-          ((semver-wildcard? req) #t)
-          (else (semver-version? (partial-semver->full req)))))))
+          ((semver-single-requirement? req) #t)
+          ((semver-compound-requirement? req) #t)
+          (else (semver-disjunctive-requirement? req))))))
 
 (define (safe-store-token s)
   (list->string

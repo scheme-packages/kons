@@ -122,15 +122,58 @@
           (loop (+ i 1))
           (substring s i len)))))
 
+(define (trim-trailing-space s)
+  (let loop ((i (- (string-length s) 1)))
+    (cond
+     ((< i 0) "")
+     ((let ((ch (string-ref s i)))
+        (or (char=? ch #\space)
+            (char=? ch #\tab)
+            (char=? ch #\newline)
+            (char=? ch #\return)))
+      (loop (- i 1)))
+     (else (substring s 0 (+ i 1))))))
+
+(define (trim-space s)
+  (trim-trailing-space (trim-leading-space s)))
+
+(define (semver-space? ch)
+  (or (char=? ch #\space)
+      (char=? ch #\tab)
+      (char=? ch #\newline)
+      (char=? ch #\return)))
+
+(define (split-whitespace s)
+  (let ((len (string-length s)))
+    (let loop ((i 0) (start #f) (out '()))
+      (cond
+       ((= i len)
+        (reverse
+         (if start
+             (cons (substring s start len) out)
+             out)))
+       ((semver-space? (string-ref s i))
+        (if start
+            (loop (+ i 1) #f (cons (substring s start i) out))
+            (loop (+ i 1) #f out)))
+       (start (loop (+ i 1) start out))
+       (else (loop (+ i 1) i out))))))
+
+(define (join-strings items sep)
+  (cond
+   ((null? items) "")
+   ((null? (cdr items)) (car items))
+   (else (string-append (car items) sep (join-strings (cdr items) sep)))))
+
 (define (string-prefix? prefix s)
   (let ((plen (string-length prefix)))
     (and (>= (string-length s) plen)
          (string=? prefix (substring s 0 plen)))))
 
-(define (semver-satisfies? version req)
-  (let ((req (trim-leading-space req)))
+(define (semver-satisfies-single? version req)
+  (and (not (string=? req ""))
     (cond
-     ((or (string=? req "") (string=? req "*")) #t)
+     ((string=? req "*") #t)
      ((char=? (string-ref req 0) #\^)
       (let* ((base (partial-version->full (substring req 1 (string-length req))))
              (base-parts (semver-parts base))
@@ -157,5 +200,40 @@
       (and (>= (compare-semver version (wildcard-lower-bound req)) 0)
            (< (compare-semver version (wildcard-upper-bound req)) 0)))
      (else (= (compare-semver version (partial-version->full req)) 0)))))
+
+(define (semver-satisfies-compound? version req)
+  (let ((parts (split-whitespace req)))
+    (and (pair? parts)
+         (let loop ((items parts))
+           (cond
+            ((null? items) #t)
+            ((semver-satisfies-single? version (car items)) (loop (cdr items)))
+            (else #f))))))
+
+(define (semver-satisfies-disjunctive? version req)
+  (let ((parts (split-whitespace req)))
+    (let loop ((items parts) (clause '()) (saw-or? #f))
+      (cond
+       ((null? items)
+        (and saw-or?
+             (pair? clause)
+             (semver-satisfies-compound?
+              version
+              (join-strings (reverse clause) " "))))
+       ((string=? (car items) "||")
+        (or (and (pair? clause)
+                 (semver-satisfies-compound?
+                  version
+                  (join-strings (reverse clause) " ")))
+            (loop (cdr items) '() #t)))
+       (else (loop (cdr items) (cons (car items) clause) saw-or?))))))
+
+(define (semver-satisfies? version req)
+  (let ((req (trim-space req)))
+    (cond
+     ((string=? req "") #t)
+     ((semver-satisfies-single? version req) #t)
+     ((semver-satisfies-compound? version req) #t)
+     (else (semver-satisfies-disjunctive? version req)))))
 
   ))

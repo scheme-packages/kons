@@ -183,6 +183,25 @@
 (define (maybe-lock-field key value)
   (if value `((,key ,value)) '()))
 
+(define (akku-candidate-install candidate)
+  (akku-lock-ref candidate 'install '()))
+
+(define (install-load-paths install)
+  (let loop ((items install) (out '()))
+    (cond
+     ((null? items) (reverse out))
+     ((and (pair? (car items))
+           (memq (caar items) '(load-path load-paths library-path library-paths))
+           (let values-valid? ((values (cdar items)))
+             (or (null? values)
+                 (and (string? (car values))
+                      (values-valid? (cdr values))))))
+      (loop (cdr items) (append (reverse (cdar items)) out)))
+     (else (loop (cdr items) out)))))
+
+(define (maybe-load-paths-field paths)
+  (if (null? paths) '() `((load-paths ,@paths))))
+
 (define (akku-source-cache-path key version kind ref tag revision sha256)
   (path-join
    (path-join
@@ -213,7 +232,8 @@
          (source-ref (cadr location))
          (tag (akku-candidate-field candidate 'tag #f))
          (revision (akku-candidate-field candidate 'revision #f))
-         (sha256 (akku-content-sha256 (akku-candidate-content candidate))))
+         (sha256 (akku-content-sha256 (akku-candidate-content candidate)))
+         (load-paths (install-load-paths (akku-candidate-install candidate))))
     (append
      `(package
        (id ,id)
@@ -231,6 +251,7 @@
      (maybe-lock-field 'tag tag)
      (maybe-lock-field 'revision revision)
      (maybe-lock-field 'url-sha256 sha256)
+     (maybe-load-paths-field load-paths)
      `((depends ,(akku-lock-ref candidate 'akku-depends '()))
        (depends/dev ,(akku-lock-ref candidate 'akku-depends/dev '()))
        (conflicts ,(akku-lock-ref candidate 'akku-conflicts '()))

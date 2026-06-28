@@ -443,35 +443,50 @@
                 (cons (cons key available?) cond-expand-library-probe-cache))
           available?))))))
 
-(define (source-root-library-available? source-root library-name)
+(define (source-root-library-available? source-root library-name entries)
+  (or (library-key-entry (cons 'r7rs library-name) entries)
+      (library-key-entry (cons 'guile library-name) entries)
+      (library-key-entry (cons 'r6rs library-name) entries)))
+
+(define (cached-source-root-library-entries source-root cache)
   (cond
+   ((assoc source-root cache)
+    => (lambda (entry) (values (cdr entry) cache)))
    ((source-root-package-manifest source-root)
     => (lambda (source-manifest)
-         (or (library-key-entry
-              (cons 'r7rs library-name)
-              (effective-package-libraries source-manifest))
-             (library-key-entry
-              (cons 'guile library-name)
-              (effective-package-libraries source-manifest))
-             (library-key-entry
-              (cons 'r6rs library-name)
-              (effective-package-libraries source-manifest)))))
-   (else #f)))
+         (let ((entries (effective-package-libraries source-manifest)))
+           (values entries (cons (cons source-root entries) cache)))))
+   (else (values '() (cons (cons source-root '()) cache)))))
 
-(define (source-roots-library-available? source-roots library-name)
+(define (source-roots-library-available? source-roots library-name cache)
   (let loop ((items source-roots))
     (cond
-     ((null? items) #f)
-     ((source-root-library-available? (car items) library-name) #t)
-     (else (loop (cdr items))))))
+     ((null? items) (values #f cache))
+     (else
+      (call-with-values
+       (lambda () (cached-source-root-library-entries (car items) cache))
+       (lambda (entries new-cache)
+         (set! cache new-cache)
+         (if (source-root-library-available? (car items) library-name entries)
+             (values #t cache)
+             (loop (cdr items)))))))))
 
 (define (compiler-library-discovery-context manifest cmd source-roots)
-  (let ((scheme (adapter-scheme manifest (command-selected-scheme cmd))))
+  (let ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+        (source-root-library-cache '()))
     (make-library-discovery-context
      (scheme-cond-expand-features scheme)
      (lambda (library-name)
        (or (scheme-implementation-library-available? scheme library-name)
-           (source-roots-library-available? source-roots library-name))))))
+           (call-with-values
+            (lambda ()
+              (source-roots-library-available?
+               source-roots
+               library-name
+               source-root-library-cache))
+            (lambda (available? new-cache)
+              (set! source-root-library-cache new-cache)
+              available?)))))))
 
 (define (compiled-artifact-entries-for-scheme/context manifest scheme context)
   (let ((mode (implementation-mode scheme)))
