@@ -43,9 +43,10 @@ export function libraryTags(library) {
     tags.push(tag);
   };
 
-  add(library?.dialect || library?.kind);
-  add(library?.kind);
-  add(library?.implementation);
+  const dialect = String(library?.dialect || "").trim();
+  const implementation = String(library?.implementation || "").trim();
+  add(dialect && implementation ? `${dialect}/${implementation}` : (dialect || library?.kind));
+  if (String(library?.kind || "").trim().toLowerCase() !== dialect.toLowerCase()) add(library?.kind);
   return tags;
 }
 

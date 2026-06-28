@@ -119,12 +119,23 @@
      (else (displayln "No results found.")))))
 
 (define (library-tags lib)
-  (string-join
-   (filter non-empty-string?
-           (list (json-string-ref lib 'kind "")
-                 (json-string-ref lib 'dialect "")
-                 (json-string-ref lib 'implementation "")))
-   " "))
+  (let* ((kind (json-string-ref lib 'kind ""))
+         (dialect (json-string-ref lib 'dialect ""))
+         (implementation (json-string-ref lib 'implementation ""))
+         (variant (if (and (non-empty-string? dialect)
+                       (non-empty-string? implementation))
+                    (string-append dialect "/" implementation)
+                    "")))
+    (string-join
+     (filter non-empty-string?
+             (list (if (non-empty-string? variant)
+                     variant
+                     (if (non-empty-string? dialect) dialect kind))
+                   (if (and (non-empty-string? kind)
+                        (not (string=? kind dialect)))
+                     kind
+                     "")))
+     " ")))
 
 (define (display-library-line lib)
   (display "  ")

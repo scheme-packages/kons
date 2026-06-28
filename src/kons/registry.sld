@@ -532,6 +532,28 @@
                             (map sexp-dependency->json
                               (sexp-field-values fields 'dependencies)))))))
 
+    (define (sexp-library-name->json value)
+      (cond
+        ((pair? value)
+          (list->vector (map sexp-string-value value)))
+        ((symbol? value) (symbol->string value))
+        ((string? value) value)
+        (else "")))
+
+    (define (sexp-library->json form)
+      (let ((fields (if (and (pair? form) (eq? (car form) 'library)) (cdr form) '())))
+        `((kind . ,(sexp-symbol-string (sexp-field fields 'kind 'r7rs)))
+          (name . ,(sexp-library-name->json (sexp-field fields 'name "")))
+          (displayName . ,(sexp-string-value (sexp-field fields 'display-name "")))
+          (key . ,(sexp-string-value (sexp-field fields 'key "")))
+          (path . ,(sexp-string-value (sexp-field fields 'path "")))
+          (implementation . ,(sexp-string-value (sexp-field fields 'implementation "")))
+          (dialect . ,(sexp-string-value (sexp-field fields 'dialect "")))
+          (imports . ,(list->vector
+                        (map sexp-library-name->json
+                          (sexp-field-values fields 'imports))))
+          (exports . ,(sexp-symbol-vector (sexp-field-values fields 'exports))))))
+
     (define (sexp-version->json form)
       (let ((fields (if (and (pair? form) (eq? (car form) 'version)) (cdr form) '())))
         `((version . ,(sexp-string-value (sexp-field fields 'number "")))
@@ -550,7 +572,10 @@
                                      (sexp-field-values fields 'feature-dependencies))))
           (dependencies . ,(list->vector
                             (map sexp-dependency->json
-                              (sexp-field-values fields 'dependencies)))))))
+                              (sexp-field-values fields 'dependencies))))
+          (libraries . ,(list->vector
+                         (map sexp-library->json
+                           (sexp-field-values fields 'libraries)))))))
 
     (define (sexp-entry->version-json api form)
       (let* ((fields (if (and (pair? form) (eq? (car form) 'entry)) (cdr form) '()))

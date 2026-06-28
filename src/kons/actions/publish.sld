@@ -67,20 +67,15 @@
             "/"))
         (else "")))
 
-    (define (library-entry-dialect kind)
-      (case kind
-        ((r7rs r6rs) (symbol->string kind))
-        (else "")))
-
-    (define (library-entry-implementation kind)
-      (case kind
-        ((guile gauche) (symbol->string kind))
-        (else "")))
+    (define (maybe-symbol->string value)
+      (if (symbol? value) (symbol->string value) ""))
 
     (define (library-entry-sexp entry)
       (let ((kind (car entry))
             (name (cadr entry))
             (path (library-entry-path "" entry))
+            (implementation (library-entry-implementation entry))
+            (dialect (library-entry-dialect entry))
             (imports (filter symbol-list-value? (library-entry-imports entry)))
             (exports (filter symbol? (library-entry-exports entry))))
         `(library
@@ -89,8 +84,8 @@
           (display-name ,(library-name-display name))
           (key ,(library-name-key name))
           (path ,path)
-          (implementation ,(library-entry-implementation kind))
-          (dialect ,(library-entry-dialect kind))
+          (implementation ,(maybe-symbol->string implementation))
+          (dialect ,(maybe-symbol->string dialect))
           (imports ,@(map name-list->sexp imports))
           (exports ,@exports))))
 

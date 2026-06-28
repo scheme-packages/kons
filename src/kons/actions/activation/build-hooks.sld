@@ -596,6 +596,90 @@
             (write-build-directive-library! manifest build-root directive)))
         directives))
 
+    (define (entry-default-output-path build-root entry)
+      (case (car entry)
+        ((r7rs) (library-source-path build-root (cadr entry)))
+        ((r6rs) (r6rs-library-output-path build-root (cadr entry)))
+        ((guile) (module-source-path build-root (cadr entry)))
+        ((gauche) (gauche-module-source-path build-root (cadr entry)))
+        (else #f)))
+
+    (define (entry-default-source-path source-root entry)
+      (case (car entry)
+        ((r7rs) (library-source-path source-root (cadr entry)))
+        ((r6rs) (r6rs-library-source-path source-root (cadr entry)))
+        ((guile) (module-source-path source-root (cadr entry)))
+        ((gauche) (gauche-module-source-path source-root (cadr entry)))
+        (else #f)))
+
+    (define (library-form-matches-entry? expr entry)
+      (and (pair? expr)
+        (pair? (cdr expr))
+        (case (car entry)
+          ((r7rs)
+            (and (eq? (car expr) 'define-library)
+              (equal? (cadr expr) (cadr entry))))
+          ((r6rs)
+            (and (eq? (car expr) 'library)
+              (equal? (cadr expr) (cadr entry))))
+          ((guile)
+            (and (eq? (car expr) 'define-module)
+              (equal? (cadr expr) (cadr entry))))
+          ((gauche)
+            (and (eq? (car expr) 'define-module)
+              (equal? (cadr expr) (cadr entry))))
+          (else #f))))
+
+    (define (library-entry-source-form entry)
+      (let ((source (library-entry-path "" entry)))
+        (and source
+          (file-exists? source)
+          (let loop ((exprs (read-all-exprs source)))
+            (cond
+              ((null? exprs) #f)
+              ((library-form-matches-entry? (car exprs) entry) (car exprs))
+              (else (loop (cdr exprs))))))))
+
+    (define (materialized-library-needed? source-root entry output)
+      (let ((source (library-entry-path source-root entry))
+            (default-source (entry-default-source-path source-root entry)))
+        (and output
+          source
+          (file-exists? source)
+          (or (library-entry-explicit-property entry 'implementation)
+            (library-entry-explicit-property entry 'dialect)
+            (not default-source)
+            (not (same-path? source default-source))))))
+
+    (define (library-entry-explicit-property entry key)
+      (let ((found (and (pair? (cdr entry))
+                    (pair? (cddr entry))
+                    (assq key (cddr entry)))))
+        (and found (cadr found))))
+
+    (define (write-materialized-library-entry! source-root build-root entry)
+      (let ((output (entry-default-output-path build-root entry)))
+        (when (materialized-library-needed? source-root entry output)
+          (let ((form (library-entry-source-form entry)))
+            (unless form
+              (manifest-error "library source form not found for materialization"
+                (cadr entry)
+                (library-entry-path source-root entry)))
+            (write-library-expr! output form)))))
+
+    (define (write-materialized-libraries! manifest features cmd build-root)
+      (let* ((source-root (manifest-source-root manifest))
+             (mode (implementation-mode (adapter-scheme manifest (command-selected-scheme cmd))))
+             (context (make-library-discovery-context
+                       (if mode
+                         (implementation-mode-features mode)
+                         (list (adapter-scheme manifest (command-selected-scheme cmd))))
+                       (lambda (name) #t))))
+        (for-each
+          (lambda (entry)
+            (write-materialized-library-entry! source-root build-root entry))
+          (effective-package-libraries/context manifest context))))
+
     (define (feature-cond-rules active-features)
       (append
         (map
@@ -816,6 +900,7 @@
         (let ((dir (build-output-dir manifest features cmd)))
           (run-command (string-append "mkdir -p " (shell-quote dir)))
           (write-feature-libraries! manifest features dir)
+          (write-materialized-libraries! manifest features cmd dir)
           (write-r7rs->r6rs-translations! manifest features cmd dir)
           (when (has-build-hooks? manifest)
             (run-build-hooks manifest cmd features dir))
@@ -846,6 +931,7 @@
               (let ((dep-build-root (dependency-build-output-dir dep-manifest package-root dep-features cmd)))
                 (run-command (string-append "mkdir -p " (shell-quote dep-build-root)))
                 (write-feature-libraries! dep-manifest dep-features dep-build-root)
+                (write-materialized-libraries! dep-manifest dep-features cmd dep-build-root)
                 (write-r7rs->r6rs-translations! dep-manifest dep-features cmd dep-build-root)
                 (when (has-build-hooks? dep-manifest)
                   (let ((srcs (dependency-build-hook-source-roots

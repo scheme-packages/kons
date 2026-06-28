@@ -12,6 +12,8 @@
     effective-public-package-libraries
     manifest-with-effective-libraries
     library-entry-path
+    library-entry-dialect
+    library-entry-implementation
     library-entry-imports
     import-set-library-name
     library-entry-import-specs/context
@@ -104,6 +106,7 @@
     (define (scheme-library-file? path)
       (or (string-suffix? ".sld" path)
         (string-suffix? ".sls" path)
+        (string-suffix? ".sps" path)
         (string-suffix? ".scm" path)))
 
     (define (hidden-path-entry? entry)
@@ -165,6 +168,18 @@
           ((r6rs) (r6rs-library-source-path source-root (cadr entry)))
           ((guile) (module-source-path source-root (cadr entry)))
           ((gauche) (gauche-module-source-path source-root (cadr entry)))
+          (else #f))))
+
+    (define (library-entry-dialect entry)
+      (or (library-entry-ref entry 'dialect #f)
+        (case (car entry)
+          ((r7rs r6rs) (car entry))
+          (else #f))))
+
+    (define (library-entry-implementation entry)
+      (or (library-entry-ref entry 'implementation #f)
+        (case (car entry)
+          ((guile gauche) (car entry))
           (else #f))))
 
     (define (library-entry-imports entry)
@@ -233,9 +248,18 @@
     (define (library-key entry)
       (cons (car entry) (cadr entry)))
 
+    (define (library-entry-variant-key entry)
+      (list (car entry)
+        (cadr entry)
+        (library-entry-ref entry 'dialect #f)
+        (library-entry-ref entry 'implementation #f)))
+
     (define (same-library-key? a b)
       (and (eq? (car a) (car b))
         (equal? (cdr a) (cdr b))))
+
+    (define (same-library-variant-key? a b)
+      (equal? a b))
 
     (define (library-key-present? key entries)
       (let loop ((items entries))
@@ -249,6 +273,13 @@
         (cond
           ((null? items) #f)
           ((same-library-key? key (library-key (car items))) (car items))
+          (else (loop (cdr items))))))
+
+    (define (library-variant-key-entry key entries)
+      (let loop ((items entries))
+        (cond
+          ((null? items) #f)
+          ((same-library-variant-key? key (library-entry-variant-key (car items))) (car items))
           (else (loop (cdr items))))))
 
     (define (import-set-library-name spec)
@@ -582,40 +613,126 @@
               (walk (car items) out))))))
 
     (define (library-entries-from-expr/context path expr context)
+      (define (variant-properties)
+        (library-path-variant-properties path))
+      (define (entry-properties imports)
+        (append
+          (variant-properties)
+          (let ((implementation (implementation-from-imports imports)))
+            (if implementation `((implementation ,implementation)) '()))))
       (cond
         ((and (pair? expr)
             (eq? (car expr) 'define-library)
             (pair? (cdr expr))
             (symbol-list-value? (cadr expr)))
-          (list `(r7rs ,(cadr expr)
-                  (path ,path)
-                  (imports ,@(library-declaration-imports/context path (cddr expr) context))
-                  (exports ,@(library-declaration-exports/context path (cddr expr) context)))))
+          (let ((imports (library-declaration-imports/context path (cddr expr) context)))
+            (list `(r7rs ,(cadr expr)
+                    (path ,path)
+                    ,@(entry-properties imports)
+                    (imports ,@imports)
+                    (exports ,@(library-declaration-exports/context path (cddr expr) context))))))
         ((and (pair? expr)
             (eq? (car expr) 'library)
             (pair? (cdr expr))
             (symbol-list-value? (cadr expr)))
-          (list `(r6rs ,(cadr expr)
-                  (path ,path)
-                  (imports ,@(library-declaration-imports/context path (cddr expr) context))
-                  (exports ,@(library-declaration-exports/context path (cddr expr) context)))))
+          (let ((imports (library-declaration-imports/context path (cddr expr) context)))
+            (list `(r6rs ,(cadr expr)
+                    (path ,path)
+                    ,@(entry-properties imports)
+                    (imports ,@imports)
+                    (exports ,@(library-declaration-exports/context path (cddr expr) context))))))
         ((and (pair? expr)
             (eq? (car expr) 'define-module)
             (pair? (cdr expr))
             (symbol-list-value? (cadr expr)))
-          (list `(guile ,(cadr expr)
-                  (path ,path)
-                  (imports ,@(reverse (simple-module-imports expr)))
-                  (exports ,@(reverse (simple-module-exports expr))))))
+          (let ((imports (reverse (simple-module-imports expr))))
+            (list `(guile ,(cadr expr)
+                    (path ,path)
+                    ,@(entry-properties imports)
+                    (imports ,@imports)
+                    (exports ,@(reverse (simple-module-exports expr)))))))
         ((and (pair? expr)
             (eq? (car expr) 'define-module)
             (pair? (cdr expr))
             (symbol? (cadr expr)))
-          (list `(gauche ,(cadr expr)
-                  (path ,path)
-                  (imports ,@(reverse (simple-module-imports expr)))
-                  (exports ,@(reverse (simple-module-exports expr))))))
+          (let ((imports (reverse (simple-module-imports expr))))
+            (list `(gauche ,(cadr expr)
+                    (path ,path)
+                    ,@(entry-properties imports)
+                    (imports ,@imports)
+                    (exports ,@(reverse (simple-module-exports expr)))))))
         (else '())))
+
+    (define implementation-variant-names
+      '(capy gauche chibi guile chez mit sagittarius mosh stklos kawa loko ironscheme skint cyclone))
+
+    (define dialect-variant-names
+      '(r7rs r6rs guile gauche chez mit))
+
+    (define (symbol-member? item items)
+      (let loop ((rest items))
+        (cond
+          ((null? rest) #f)
+          ((eq? item (car rest)) #t)
+          (else (loop (cdr rest))))))
+
+    (define (path-last-segment path)
+      (let ((parts (filter non-empty-string? (string-split path #\/))))
+        (if (null? parts) path (car (reverse parts)))))
+
+    (define (path-remove-known-extension file)
+      (cond
+        ((string-suffix? ".sld" file)
+          (substring file 0 (- (string-length file) 4)))
+        ((string-suffix? ".sls" file)
+          (substring file 0 (- (string-length file) 4)))
+        ((string-suffix? ".sps" file)
+          (substring file 0 (- (string-length file) 4)))
+        ((string-suffix? ".scm" file)
+          (substring file 0 (- (string-length file) 4)))
+        (else file)))
+
+    (define (last-path-token path)
+      (let ((parts (string-split (path-remove-known-extension (path-last-segment path)) #\.)))
+        (and (pair? parts)
+          (let ((last (car (reverse parts))))
+            (and (non-empty-string? last) (string->symbol last))))))
+
+    (define (library-path-variant-properties path)
+      (let ((tag (last-path-token path)))
+        (cond
+          ((not tag) '())
+          ((symbol-member? tag implementation-variant-names)
+            `((implementation ,tag)))
+          ((symbol-member? tag dialect-variant-names)
+            `((dialect ,tag)))
+          (else '()))))
+
+    (define (implementation-library-prefix name)
+      (and (pair? name)
+        (case (car name)
+          ((capy) 'capy)
+          ((chez chezscheme) 'chez)
+          ((chibi) 'chibi)
+          ((cyclone) 'cyclone)
+          ((gauche) 'gauche)
+          ((guile) 'guile)
+          ((ironscheme) 'ironscheme)
+          ((kawa) 'kawa)
+          ((loko) 'loko)
+          ((mit) 'mit)
+          ((mosh nmosh) 'mosh)
+          ((sagittarius) 'sagittarius)
+          ((stklos) 'stklos)
+          ((skint) 'skint)
+          (else #f))))
+
+    (define (implementation-from-imports imports)
+      (let loop ((items imports))
+        (cond
+          ((null? items) #f)
+          ((implementation-library-prefix (car items)))
+          (else (loop (cdr items))))))
 
     (define (library-entries-from-expr path expr)
       (library-entries-from-expr/context path expr #f))
@@ -642,16 +759,16 @@
       (let loop ((items entries) (out '()))
         (cond
           ((null? items) (reverse out))
-          ((library-key-entry (library-key (car items)) out)
+          ((library-variant-key-entry (library-entry-variant-key (car items)) out)
             =>
             (lambda (existing)
               (if (string=? (library-entry-path "" existing)
                    (library-entry-path "" (car items)))
                 (loop (cdr items) out)
-                (manifest-error "duplicate discovered library"
-                  (cadr (car items))
-                  (library-entry-path "" existing)
-                  (library-entry-path "" (car items))))))
+                  (manifest-error "duplicate discovered library"
+                    (cadr (car items))
+                    (library-entry-path "" existing)
+                    (library-entry-path "" (car items))))))
           (else (loop (cdr items) (cons (car items) out))))))
 
     (define (remove-library-property key props)
@@ -741,7 +858,7 @@
                            (out declared))
                   (cond
                     ((null? items) out)
-                    ((library-key-present? (library-key (car items)) declared)
+                    ((library-variant-key-entry (library-entry-variant-key (car items)) declared)
                       (loop (cdr items) out))
                     (else
                       (loop (cdr items) (append out (list (car items)))))))))
@@ -754,6 +871,10 @@
       `(,(car entry) ,(cadr entry)
         ,@(let ((path (library-entry-ref entry 'path #f)))
            (if path `((path ,path)) '()))
+        ,@(let ((dialect (library-entry-ref entry 'dialect #f)))
+           (if dialect `((dialect ,dialect)) '()))
+        ,@(let ((implementation (library-entry-ref entry 'implementation #f)))
+           (if implementation `((implementation ,implementation)) '()))
         ,@(let ((imports (library-entry-imports entry)))
            (if (null? imports) '() `((imports ,@imports))))
         ,@(let ((exports (library-entry-exports entry)))
@@ -795,20 +916,60 @@
 
     (define (library-entry-loadable? entry entries context)
       (or (not context)
-        (let ((kind (car entry)))
-          (let loop ((imports (filter symbol-list-value? (library-entry-imports entry))))
-            (cond
-              ((null? imports) #t)
-              ((library-import-available? kind (car imports) entries context)
-                (loop (cdr imports)))
-              (else #f))))))
+        (and
+          (library-entry-variant-loadable? entry context)
+          (let ((kind (car entry)))
+            (let loop ((imports (filter symbol-list-value? (library-entry-imports entry))))
+              (cond
+                ((null? imports) #t)
+                ((library-import-available? kind (car imports) entries context)
+                  (loop (cdr imports)))
+                (else #f)))))))
+
+    (define (library-entry-variant-loadable? entry context)
+      (let ((features (discovery-context-features context))
+            (dialect (library-entry-ref entry 'dialect #f))
+            (implementation (library-entry-ref entry 'implementation #f)))
+        (and
+          (or (not dialect) (symbol-member? dialect features))
+          (or (not implementation) (symbol-member? implementation features)))))
 
     (define (loadable-library-entries/context entries context)
       (if context
-        (filter
-          (lambda (entry)
-            (library-entry-loadable? entry entries context))
-          entries)
+        (prefer-specific-library-variants/context
+          (filter
+            (lambda (entry)
+              (library-entry-loadable? entry entries context))
+            entries)
+          context)
+        entries))
+
+    (define (explicit-library-variant? entry)
+      (or (library-entry-ref entry 'dialect #f)
+        (library-entry-ref entry 'implementation #f)))
+
+    (define (library-entry-variant-more-specific? candidate entry context)
+      (and (same-library-key? (library-key candidate) (library-key entry))
+        (explicit-library-variant? candidate)
+        (not (equal? (library-entry-path "" candidate) (library-entry-path "" entry)))
+        (library-entry-variant-loadable? candidate context)
+        (or (not (library-entry-ref entry 'implementation #f))
+          (library-entry-ref candidate 'implementation #f))
+        (or (not (library-entry-ref entry 'dialect #f))
+          (library-entry-ref candidate 'dialect #f))))
+
+    (define (specific-library-variant-present? entry entries context)
+      (let loop ((items entries))
+        (cond
+          ((null? items) #f)
+          ((library-entry-variant-more-specific? (car items) entry context) #t)
+          (else (loop (cdr items))))))
+
+    (define (prefer-specific-library-variants/context entries context)
+      (filter
+        (lambda (entry)
+          (or (explicit-library-variant? entry)
+            (not (specific-library-variant-present? entry entries context))))
         entries))
 
     (define (same-kind-library-imports entry entries)
