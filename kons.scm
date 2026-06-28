@@ -1,7 +1,7 @@
 (package
   (name (scheme-packages kons))
   (version "0.2.0")
-  (license "MIT")
+  (license "BSD-3-Clause")
   (description "Scheme package manager and build system")
   (dialects r7rs)
   (source-path "src")
