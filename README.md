@@ -191,7 +191,7 @@ to Snow.
 | Vendoring / offline / frozen | yes | offline cache | cache only |
 | Signed metadata | kons registry + Akku OpenPGP | OpenPGP | no |
 | Publish target | kons registry | Akku registry | Snow (out of scope for kons) |
-| Implementations that run the tool | Capy, Gauche, GNU Guile, Chibi Scheme | GNU Guile, Chez Scheme, Loko | n/a (no manager) |
+| Implementations that run the tool | Capy, Gauche, GNU Guile, Chibi Scheme | GNU Guile, Chez Scheme, Loko | snow-chibi via chibi-scheme |
 
 ### kons — pros and cons
 
