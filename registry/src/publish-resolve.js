@@ -73,6 +73,7 @@ function sparseIndexEntry(name, row) {
       targets: dep.targets || [],
       profiles: dep.profiles || [],
       compileModes: dep.compileModes || [],
+      condition: dep.condition ?? null,
       features: dep.features,
     })),
     checksum: row.checksum,
@@ -96,6 +97,31 @@ function indexLines(name) {
   return writeSexp([sym("kons-registry-index"), ...entries.map((entry) => sparseEntrySexp(entry))]) + "\n";
 }
 
+const CONDITION_OPERATORS = new Set(["and", "or", "not"]);
+
+function conditionFromSexp(value) {
+  if (value == null) return null;
+  if (value === false) return false;
+  if (Array.isArray(value)) return value.map(conditionFromSexp);
+  const name = symbolName(value);
+  if (name) return name;
+  return value;
+}
+
+function conditionToSexp(value) {
+  if (value === false || value == null) return false;
+  if (Array.isArray(value)) {
+    const [head, ...tail] = value;
+    if (typeof head === "string") {
+      if (CONDITION_OPERATORS.has(head)) return [sym(head), ...tail.map(conditionToSexp)];
+      if (tail.length === 1) return [sym(head), tail[0]];
+    }
+    return value.map(conditionToSexp);
+  }
+  if (typeof value === "string") return sym(value);
+  return value;
+}
+
 function depSexp(dep) {
   return sexpFields("dependency", {
     name: dep.name,
@@ -110,6 +136,7 @@ function depSexp(dep) {
     targets: dep.targets || [],
     profiles: symbolStrings(dep.profiles || []).map(sym),
     "compile-modes": symbolStrings(dep.compileModes || []).map(sym),
+    condition: conditionToSexp(dep.condition),
     features: symbolStrings(dep.features || []).map(sym),
   });
 }
@@ -196,6 +223,7 @@ function parseDependencyForm(form) {
     targets: fieldValues(fields, "targets").map((item) => scalarString(item)).filter(Boolean),
     profiles: symbolStrings(fieldValues(fields, "profiles")),
     compileModes: symbolStrings(fieldValues(fields, "compile-modes")),
+    condition: conditionFromSexp(fieldValue(fields, "condition", false)),
     features: symbolStrings(fieldValues(fields, "features")),
   };
 }
@@ -368,8 +396,8 @@ async function publishPackage(req, res) {
     for (const dep of dependencies) {
       db.prepare(`
       INSERT INTO dependencies
-          (package_name, version, dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, features_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (package_name, version, dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         name,
         version,
@@ -385,6 +413,7 @@ async function publishPackage(req, res) {
         dataText(dep.targets),
         dataText(dep.profiles),
         dataText(dep.compileModes),
+        dataText(dep.condition ?? false),
         dataText(dep.features)
       );
     }
@@ -596,16 +625,79 @@ function selectorFieldMatches(selectedValue, allowedValues) {
   return allowedValues.includes(selectedValue);
 }
 
+function firstPart(parts, choices) {
+  return parts.find((part) => choices.includes(part)) || "";
+}
+
+function targetConditionOptions(context) {
+  const target = String(context.target || "");
+  if (!target) return null;
+  const dashedParts = String(target).split("-").filter(Boolean);
+  const parts = dashedParts;
+  const arch = firstPart(parts, ["x86", "i386", "i486", "i586", "i686", "x86_64", "amd64", "arm", "armv7", "aarch64", "mips", "mips64", "powerpc", "powerpc64", "riscv32", "riscv64", "s390x", "wasm32", "wasm64"]);
+  const normalizedArch = arch === "amd64" ? "x86_64" : ["i386", "i486", "i586", "i686"].includes(arch) ? "x86" : arch === "armv7" ? "arm" : arch;
+  const rawOs = firstPart(parts, ["windows", "linux", "macos", "darwin", "ios", "android", "freebsd", "dragonfly", "openbsd", "netbsd", "none", "wasi", "emscripten"]);
+  const os = rawOs === "darwin" ? "macos" : rawOs;
+  const envPart = firstPart(parts, ["gnu", "gnueabi", "gnueabihf", "msvc", "musl", "sgx", "uclibc", "macabi"]);
+  const env = ["gnueabi", "gnueabihf"].includes(envPart) ? "gnu" : envPart;
+  const abiPart = firstPart(parts, ["eabi", "eabihf", "macabi", "sim", "llvm", "gnueabi", "gnueabihf"]);
+  const abi = abiPart === "gnueabi" ? "eabi" : abiPart === "gnueabihf" ? "eabihf" : abiPart;
+  const vendor = dashedParts.length >= 3 ? dashedParts[1] : "";
+  const pointerWidth = ["x86_64", "aarch64", "mips64", "powerpc64", "riscv64", "s390x", "wasm64"].includes(normalizedArch) ? "64" : normalizedArch ? "32" : "";
+  const options = new Set([`target=${target}`, context.profile === "release" ? "" : "debug-assertions", "panic=unwind"].filter(Boolean));
+  if (normalizedArch) options.add(`target-arch=${normalizedArch}`);
+  if (os) options.add(`target-os=${os}`);
+  options.add(`target-env=${env}`);
+  options.add(`target-abi=${abi}`);
+  if (vendor) options.add(`target-vendor=${vendor}`);
+  if (pointerWidth) options.add(`target-pointer-width=${pointerWidth}`);
+  if (normalizedArch) options.add(`target-endian=${["s390x", "powerpc"].includes(normalizedArch) ? "big" : "little"}`);
+  if (os === "windows") {
+    options.add("windows");
+    options.add("target-family=windows");
+  } else if (["linux", "macos", "ios", "android", "freebsd", "dragonfly", "openbsd", "netbsd"].includes(os)) {
+    options.add("unix");
+    options.add("target-family=unix");
+  } else if (["wasm32", "wasm64"].includes(normalizedArch)) {
+    options.add("target-family=wasm");
+  }
+  for (const width of ["8", "16", "32", "ptr"]) options.add(`target-has-atomic=${width}`);
+  if (pointerWidth === "64") options.add("target-has-atomic=64");
+  return options;
+}
+
+function conditionOptionMatches(options, key, value = true) {
+  if (!options) return true;
+  if (value === true) return options.has(String(key));
+  return options.has(`${key}=${String(value)}`);
+}
+
+function conditionPredicateTrue(predicate, options) {
+  if (predicate === null || predicate === undefined) return true;
+  if (predicate === true) return true;
+  if (predicate === false) return false;
+  if (typeof predicate === "string") return conditionOptionMatches(options, predicate);
+  if (!Array.isArray(predicate) || !predicate.length) return false;
+  const [head, ...tail] = predicate;
+  if (head === "and") return tail.every((item) => conditionPredicateTrue(item, options));
+  if (head === "or") return tail.some((item) => conditionPredicateTrue(item, options));
+  if (head === "not") return !conditionPredicateTrue(tail[0], options);
+  if (tail.length === 1) return conditionOptionMatches(options, head, tail[0]);
+  return false;
+}
+
 function dependencyMatchesResolveContext(dep, context) {
   const schemes = [
     ...(dep.schemes || []),
     ...(dep.implementations || []),
   ];
+  const conditionOptions = targetConditionOptions(context);
   return selectorFieldMatches(context.scheme, schemes)
     && selectorFieldMatches(context.dialect, dep.dialects || [])
     && selectorFieldMatches(context.target, dep.targets || [])
     && selectorFieldMatches(context.profile, dep.profiles || [])
-    && selectorFieldMatches(context.compileMode, dep.compileModes || []);
+    && selectorFieldMatches(context.compileMode, dep.compileModes || [])
+    && conditionPredicateTrue(dep.condition, conditionOptions);
 }
 
 function activeDependencyRows(name, row, features, context) {
@@ -630,6 +722,7 @@ function addResolveConstraint(constraints, name, req, from, kind = "normal", fea
     targets: uniqueStrings(selectors.targets || []),
     profiles: uniqueStrings(selectors.profiles || []),
     compileModes: uniqueStrings(selectors.compileModes || []),
+    condition: selectors.condition ?? null,
   });
   constraints.set(name, items);
 }
@@ -662,6 +755,7 @@ function resolveGraphConflict(name, constraints) {
     targets: req.targets || [],
     profiles: req.profiles || [],
     compileModes: req.compileModes || [],
+    condition: req.condition ?? null,
   }));
   throw httpError(409, "dependency version conflict", { package: name, requirements });
 }
@@ -726,6 +820,7 @@ function resolveGraphEdges(rootRequirements, selected, context) {
         targets: req.targets || [],
         profiles: req.profiles || [],
         compileModes: req.compileModes || [],
+        condition: req.condition ?? null,
       });
     }
   }
@@ -751,6 +846,7 @@ function resolveGraphEdges(rootRequirements, selected, context) {
         targets: dep.targets || [],
         profiles: dep.profiles || [],
         compileModes: dep.compileModes || [],
+        condition: dep.condition ?? null,
       });
     }
   }
@@ -808,6 +904,7 @@ function normalizeResolvePayload(payload) {
       targets: dep.targets || [],
       profiles: dep.profiles || [],
       compileModes: dep.compileModes || [],
+      condition: dep.condition ?? null,
     })),
   };
 }
@@ -819,6 +916,7 @@ async function resolvePackages(req, res) {
   const constraints = new Map();
   for (const requirement of payload.requirements) {
     if (requirement.optional) continue;
+    if (!dependencyMatchesResolveContext(requirement, payload.context)) continue;
     addResolveConstraint(
       constraints,
       requirement.name,

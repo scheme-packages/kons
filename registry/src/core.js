@@ -1,5 +1,5 @@
 export function createCore(ctx) {
-  const { db, config, nowIso, randomToken, sha256, parseCookies, httpError, dataArray, dataObject, dataText } = ctx;
+  const { db, config, nowIso, randomToken, sha256, parseCookies, httpError, dataArray, dataObject, dataValue, dataText } = ctx;
 
 function canonicalPackageName(name) {
   return String(name || "").trim().toLowerCase();
@@ -358,24 +358,28 @@ function incrementDownloadCount(name, version) {
 
 function dependencyRows(name, version) {
   return db.prepare(`
-    SELECT dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, features_json
+    SELECT dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json
     FROM dependencies WHERE package_name = ? AND version = ?
     ORDER BY dep_name
-  `).all(name, version).map((row) => ({
-    name: row.dep_name,
-    req: row.req,
-    kind: row.kind,
-    registry: row.registry || null,
-    optional: Boolean(row.optional),
-    target: row.target || null,
-    schemes: dataArray(row.schemes_json),
-    implementations: dataArray(row.implementations_json),
-    dialects: dataArray(row.dialects_json),
-    targets: dataArray(row.targets_json),
-    profiles: dataArray(row.profiles_json),
-    compileModes: dataArray(row.compile_modes_json),
-    features: dataArray(row.features_json),
-  }));
+  `).all(name, version).map((row) => {
+    const condition = dataValue(row.condition_json || "#f");
+    return {
+      name: row.dep_name,
+      req: row.req,
+      kind: row.kind,
+      registry: row.registry || null,
+      optional: Boolean(row.optional),
+      target: row.target || null,
+      schemes: dataArray(row.schemes_json),
+      implementations: dataArray(row.implementations_json),
+      dialects: dataArray(row.dialects_json),
+      targets: dataArray(row.targets_json),
+      profiles: dataArray(row.profiles_json),
+      compileModes: dataArray(row.compile_modes_json),
+      condition: condition === undefined ? null : condition,
+      features: dataArray(row.features_json),
+    };
+  });
 }
 
 function libraryRows(name, version) {

@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
   targets_json TEXT NOT NULL DEFAULT '[]',
   profiles_json TEXT NOT NULL DEFAULT '[]',
   compile_modes_json TEXT NOT NULL DEFAULT '[]',
+  condition_json TEXT NOT NULL DEFAULT '#f',
   features_json TEXT NOT NULL DEFAULT '[]',
   FOREIGN KEY (package_name, version) REFERENCES versions(package_name, version) ON DELETE CASCADE
 );
@@ -190,6 +191,7 @@ CREATE TABLE IF NOT EXISTS auth_states (
   ensureColumn(db, "dependencies", "targets_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "dependencies", "profiles_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "dependencies", "compile_modes_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "dependencies", "condition_json", "TEXT NOT NULL DEFAULT '#f'");
   ensureColumn(db, "version_libraries", "implementation", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "version_libraries", "dialect", "TEXT NOT NULL DEFAULT ''");
   return db;

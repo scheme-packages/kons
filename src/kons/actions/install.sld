@@ -65,7 +65,7 @@
                (src-plan (cons installed-root-source installed-deps-plan))
                (live-main (selected-install-script manifest cmd))
                (main (selected-install-main-path manifest cmd installed-root-source))
-               (scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+               (scheme (command-adapter-scheme manifest cmd))
                (install-compile-mode (command-runtime-compile-mode manifest features cmd #t))
                (installed-compiled-plan (if (eq? install-compile-mode 'compiled)
                                          (list (installed-compiled-root cmd raw-name))

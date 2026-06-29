@@ -33,6 +33,7 @@
     (scheme cxr)
     (scheme file)
     (scheme write)
+    (kons conditions)
     (kons compat files)
     (kons util)
     (kons ui)
@@ -308,11 +309,6 @@
           #t)
         (else #f)))
 
-    (define (string-prefix? prefix s)
-      (let ((plen (string-length prefix)))
-        (and (>= (string-length s) plen)
-          (string=? prefix (substring s 0 plen)))))
-
     (define (directive-output-line? line)
       (string-prefix? "(kons::" line))
 
@@ -459,7 +455,7 @@
           "--kons-out-dir"
           build-root
           "--kons-target-scheme"
-          (symbol->string (adapter-scheme manifest (command-selected-scheme cmd)))
+          (symbol->string (command-adapter-scheme manifest cmd))
           "--kons-hook-scheme"
           (symbol->string hook-scheme)
           "--kons-profile"
@@ -481,11 +477,13 @@
 
     (define (resolve-build-hook-scheme manifest hook cmd)
       (let ((per-hook (alist-ref hook 'scheme-impl #f)))
-        (adapter-scheme manifest
-          (if per-hook
-            per-hook
-            (or (command-selected-hook-scheme cmd)
-              (command-selected-scheme cmd))))))
+        (let ((scheme (if per-hook
+                        per-hook
+                        (or (command-selected-hook-scheme cmd)
+                          (command-selected-scheme cmd)))))
+          (if (command-option cmd "dialect" #f)
+            (adapter-scheme manifest scheme (command-selected-dialect manifest cmd))
+            (adapter-scheme manifest scheme)))))
 
     (define (run-build-hook-with-source-roots manifest cmd features build-root hook srcs source-root)
       (case (alist-ref hook 'type #f)
@@ -669,18 +667,152 @@
 
     (define (write-materialized-libraries! manifest features cmd build-root)
       (let* ((source-root (manifest-source-root manifest))
-             (mode (implementation-mode (adapter-scheme manifest (command-selected-scheme cmd))))
+             (mode (implementation-mode (command-adapter-scheme manifest cmd)))
              (context (make-library-discovery-context
                        (if mode
                          (implementation-mode-features mode)
-                         (list (adapter-scheme manifest (command-selected-scheme cmd))))
+                         (list (command-adapter-scheme manifest cmd)))
                        (lambda (name) #t))))
         (for-each
           (lambda (entry)
             (write-materialized-library-entry! source-root build-root entry))
           (effective-package-libraries/context manifest context))))
 
-    (define (feature-cond-rules active-features)
+    (define (feature-cond-if-name-rules names)
+      (map
+        (lambda (name)
+          `((_ ,name then else) then))
+        names))
+
+    (define (condition-value-syntax-values value)
+      (let ((symbol-value (and (not (string=? value "")) (string->symbol value)))
+            (number-value (string->number value)))
+        (dedupe-equal
+          (append
+            (list value)
+            (if symbol-value (list symbol-value) '())
+            (if number-value (list number-value) '())))))
+
+    (define (feature-cond-if-value-rules options)
+      (append-map
+        (lambda (option)
+          (if (condition-option-value? option)
+            (let ((key (car option))
+                  (value (cdr option)))
+              (append-map
+                (lambda (syntax-value)
+                  `(((_ (,key ,syntax-value) then else) then)))
+                (condition-value-syntax-values value)))
+            '()))
+        options))
+
+    (define (feature-cond-if-rules condition-options)
+      (append
+        '(((_ true then else) then)
+          ((_ false then else) else)
+          ((_ #t then else) then)
+          ((_ #f then else) else)
+          ((_ (not pred) then else)
+           (feature-cond-if pred else then))
+          ((_ (and) then else) then)
+          ((_ (and first rest ...) then else)
+           (feature-cond-if first
+            (feature-cond-if (and rest ...) then else)
+            else))
+          ((_ (or) then else) else)
+          ((_ (or first rest ...) then else)
+           (feature-cond-if first
+            then
+            (feature-cond-if (or rest ...) then else))))
+        (feature-cond-if-name-rules (condition-option-names condition-options))
+        (feature-cond-if-value-rules condition-options)
+        '(((_ (key value) then else) else)
+          ((_ pred then else) else))))
+
+    (define (feature-cond-if-literals condition-options)
+      (dedupe-symbols
+        (append
+          '(and or not true false)
+          (condition-option-names condition-options)
+          (condition-option-keys condition-options))))
+
+    (define (feature-cond-rules)
+      '(((_ (else body ...) more ...)
+         (begin body ...))
+        ((_ (pred body ...) more ...)
+         (feature-cond-if pred
+          (begin body ...)
+          (feature-cond more ...)))
+        ((_)
+         (begin))))
+
+    (define (feature-cond-syntax condition-options)
+      `((define-syntax feature-cond-if
+          (syntax-rules ,(feature-cond-if-literals condition-options)
+            ,@(feature-cond-if-rules condition-options)))
+        (define-syntax feature-cond
+          (syntax-rules (else)
+            ,@(feature-cond-rules)))))
+
+    (define (runtime-condition-enabled-form)
+      '(define (condition-enabled? pred)
+        (define (condition-value value)
+          (cond
+            ((symbol? value) (symbol->string value))
+            ((number? value) (number->string value))
+            ((boolean? value) (if value "true" "false"))
+            (else value)))
+        (define (option-active? key . maybe-value)
+          (let loop ((items active-condition-options))
+            (cond
+              ((null? items) #f)
+              ((and (null? maybe-value)
+                 (pair? (car items))
+                 (eq? (caar items) key)
+                 (eq? (cdar items) #t))
+                #t)
+              ((and (pair? maybe-value)
+                 (pair? (car items))
+                 (eq? (caar items) key)
+                 (equal? (cdar items) (condition-value (car maybe-value))))
+                #t)
+              (else (loop (cdr items))))))
+        (cond
+          ((eq? pred #t) #t)
+          ((eq? pred #f) #f)
+          ((eq? pred 'true) #t)
+          ((eq? pred 'false) #f)
+          ((symbol? pred) (option-active? pred))
+          ((and (pair? pred) (eq? (car pred) 'and))
+            (let loop ((items (cdr pred)))
+              (or (null? items)
+                (and (condition-enabled? (car items))
+                  (loop (cdr items))))))
+          ((and (pair? pred) (eq? (car pred) 'or))
+            (let loop ((items (cdr pred)))
+              (and (pair? items)
+                (or (condition-enabled? (car items))
+                  (loop (cdr items))))))
+          ((and (pair? pred) (eq? (car pred) 'not) (pair? (cdr pred)))
+            (not (condition-enabled? (cadr pred))))
+          ((and (pair? pred)
+             (symbol? (car pred))
+             (pair? (cdr pred))
+             (null? (cddr pred)))
+            (option-active? (car pred) (cadr pred)))
+          (else #f))))
+
+    (define (legacy-feature-options active-features)
+      (append
+        (map (lambda (feature) (cons feature #t)) active-features)
+        (map
+          (lambda (feature) (cons 'feature (symbol->string feature)))
+          active-features)))
+
+    (define (merge-feature-options active-features condition-options)
+      (append (legacy-feature-options active-features) condition-options))
+
+    (define (feature-cond-rules/legacy active-features)
       (append
         (map
           (lambda (feature)
@@ -693,11 +825,6 @@
            (feature-cond more ...))
           ((_)
            (begin)))))
-
-    (define (feature-cond-syntax active-features)
-      `(define-syntax feature-cond
-        (syntax-rules ,(dedupe-symbols (cons 'else active-features))
-         ,@(feature-cond-rules active-features))))
 
     (define (r7rs-feature-marker-library name)
       `(define-library ,name
@@ -712,7 +839,32 @@
         (import (rnrs))
         (define active? #t)))
 
-    (define (r7rs-feature-helper-library name active-features)
+    (define (r7rs-feature-helper-library name active-features condition-options)
+      (let ((condition-options (merge-feature-options active-features condition-options)))
+        `(define-library ,name
+          (export active-features active-condition-options feature-enabled? condition-enabled? feature-cond)
+          (import (scheme base))
+          (begin
+           (define active-features ',active-features)
+           (define active-condition-options ',condition-options)
+           (define (feature-enabled? feature)
+            (and (memq feature active-features) #t))
+           ,(runtime-condition-enabled-form)
+           ,@(feature-cond-syntax condition-options)))))
+
+    (define (r6rs-feature-helper-library name active-features condition-options)
+      (let ((condition-options (merge-feature-options active-features condition-options)))
+        `(library ,name
+          (export active-features active-condition-options feature-enabled? condition-enabled? feature-cond)
+          (import (rnrs))
+          (define active-features ',active-features)
+          (define active-condition-options ',condition-options)
+          (define (feature-enabled? feature)
+           (and (memq feature active-features) #t))
+          ,(runtime-condition-enabled-form)
+          ,@(feature-cond-syntax condition-options))))
+
+    (define (r7rs-feature-helper-library/legacy name active-features)
       `(define-library ,name
         (export active-features feature-enabled? feature-cond)
         (import (scheme base))
@@ -720,16 +872,20 @@
          (define active-features ',active-features)
          (define (feature-enabled? feature)
           (and (memq feature active-features) #t))
-         ,(feature-cond-syntax active-features))))
+         (define-syntax feature-cond
+          (syntax-rules ,(dedupe-symbols (cons 'else active-features))
+           ,@(feature-cond-rules/legacy active-features))))))
 
-    (define (r6rs-feature-helper-library name active-features)
+    (define (r6rs-feature-helper-library/legacy name active-features)
       `(library ,name
         (export active-features feature-enabled? feature-cond)
         (import (rnrs))
         (define active-features ',active-features)
         (define (feature-enabled? feature)
          (and (memq feature active-features) #t))
-        ,(feature-cond-syntax active-features)))
+        (define-syntax feature-cond
+         (syntax-rules ,(dedupe-symbols (cons 'else active-features))
+          ,@(feature-cond-rules/legacy active-features)))))
 
     (define (directive-values-for-name build-root directives name path?)
       (append-map
@@ -856,13 +1012,13 @@
         (r6rs-library-output-path build-root name)
         (r6rs-feature-marker-library name)))
 
-    (define (write-feature-helper-library! build-root name active-features)
+    (define (write-feature-helper-library! build-root name active-features condition-options)
       (write-library-expr!
         (library-source-path build-root name)
-        (r7rs-feature-helper-library name active-features))
+        (r7rs-feature-helper-library name active-features condition-options))
       (write-library-expr!
         (r6rs-library-output-path build-root name)
-        (r6rs-feature-helper-library name active-features)))
+        (r6rs-feature-helper-library name active-features condition-options)))
 
     (define (write-build-helper-library! build-root)
       (write-library-expr!
@@ -884,10 +1040,20 @@
           (r6rs-library-output-path build-root name)
           (r6rs-artifact-helper-library name data))))
 
-    (define (write-feature-libraries! manifest features build-root)
+    (define (write-feature-libraries! manifest features cmd build-root)
       (let ((helper (feature-helper-library-name manifest)))
         (write-build-helper-library! build-root)
-        (write-feature-helper-library! build-root helper features)
+        (write-feature-helper-library!
+          build-root
+          helper
+          features
+          (condition-options
+            (command-option cmd "target" #f)
+            (command-selected-profile cmd)
+            features
+            (command-selected-scheme cmd)
+            (command-selected-dialect manifest cmd)
+            (command-selected-compile-mode cmd)))
         (for-each
           (lambda (feature)
             (write-feature-marker-library!
@@ -899,7 +1065,7 @@
       (when (build-output-needed? manifest)
         (let ((dir (build-output-dir manifest features cmd)))
           (run-command (string-append "mkdir -p " (shell-quote dir)))
-          (write-feature-libraries! manifest features dir)
+          (write-feature-libraries! manifest features cmd dir)
           (write-materialized-libraries! manifest features cmd dir)
           (write-r7rs->r6rs-translations! manifest features cmd dir)
           (when (has-build-hooks? manifest)
@@ -930,7 +1096,7 @@
             (when (build-output-needed? dep-manifest)
               (let ((dep-build-root (dependency-build-output-dir dep-manifest package-root dep-features cmd)))
                 (run-command (string-append "mkdir -p " (shell-quote dep-build-root)))
-                (write-feature-libraries! dep-manifest dep-features dep-build-root)
+                (write-feature-libraries! dep-manifest dep-features cmd dep-build-root)
                 (write-materialized-libraries! dep-manifest dep-features cmd dep-build-root)
                 (write-r7rs->r6rs-translations! dep-manifest dep-features cmd dep-build-root)
                 (when (has-build-hooks? dep-manifest)

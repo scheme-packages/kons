@@ -221,8 +221,7 @@
       (ui-status-done "prepared dev activation"))
 
     (define (run-activated-script manifest cmd script include-dev? rest)
-      (let* ((scheme (command-selected-scheme cmd))
-             (adapted-scheme (adapter-scheme manifest scheme))
+      (let* ((adapted-scheme (command-adapter-scheme manifest cmd))
              (features (active-features manifest cmd))
              (srcs (activation-source-roots-with-build manifest include-dev? features cmd))
              (command (adapter-command-for-cmd manifest cmd adapted-scheme srcs script rest)))

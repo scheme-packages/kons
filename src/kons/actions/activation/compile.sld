@@ -266,7 +266,7 @@
                         out))))))))))
 
     (define (compile-implementation-libraries manifest features cmd . maybe-srcs)
-      (let* ((mode-id (adapter-scheme manifest (command-selected-scheme cmd)))
+      (let* ((mode-id (command-adapter-scheme manifest cmd))
              (records (apply compilable-source-root-records manifest features cmd maybe-srcs)))
         (log-trace "planning implementation compilation" mode-id (package-name manifest))
         (cond
@@ -285,7 +285,7 @@
 
     (define (command-runtime-compile-mode manifest features cmd . maybe-install?)
       (let* ((install? (and (pair? maybe-install?) (car maybe-install?)))
-             (mode-id (adapter-scheme manifest (command-selected-scheme cmd))))
+             (mode-id (command-adapter-scheme manifest cmd)))
         (cond
           ((not (implementation-compiler-command mode-id)) 'normal)
           ((not (has-compiled-artifacts? manifest cmd))

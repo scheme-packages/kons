@@ -40,7 +40,10 @@ unit-tests: clean-test-cache
 	$(RUN_TEST) tests/implementation.scm
 	$(RUN_TEST) tests/library-discovery.scm
 	$(RUN_TEST) tests/metadata.scm
+	$(RUN_TEST) tests/conditions.scm
 	$(RUN_TEST) tests/translation.scm
+	$(RUN_TEST) tests/status-shared.scm
+	$(RUN_TEST) tests/tree-clean.scm
 	$(RUN_TEST) tests/akku-cli.scm
 	$(RUN_TEST) tests/akku-config.scm
 	$(RUN_TEST) tests/lock.scm

@@ -25,7 +25,7 @@
             (writeln (bench-targets-form manifest cmd features)))
           ((command-flag? cmd "plan")
             (let* ((files (selected-bench-files manifest cmd))
-                   (scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+                   (scheme (command-adapter-scheme manifest cmd))
                    (srcs (activation-source-roots-with-build manifest #t features cmd))
                    (command (and (pair? files)
                              (adapter-command-for-cmd manifest cmd scheme srcs (car files) '()))))

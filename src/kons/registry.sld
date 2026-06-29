@@ -47,13 +47,6 @@
     (define default-registry-alias "default")
     (define default-registry-url "https://kons.playxe.org")
 
-    (define (string-join xs sep)
-      (let loop ((rest xs) (out ""))
-        (cond
-          ((null? rest) out)
-          ((string=? out "") (loop (cdr rest) (car rest)))
-          (else (loop (cdr rest) (string-append out sep (car rest)))))))
-
     (define (read-all-text port)
       (let loop ((chars '()))
         (let ((ch (read-char port)))
@@ -249,12 +242,6 @@
           ((and (not fallback) (string=? (registry-signing-key-record-id (car keys)) ""))
             (loop (cdr keys) (car keys)))
           (else (loop (cdr keys) fallback)))))
-
-    (define (string-prefix? prefix s)
-      (let ((plen (string-length prefix))
-            (slen (string-length s)))
-        (and (>= slen plen)
-          (string=? prefix (substring s 0 plen)))))
 
     (define (registry-url registry)
       (registry-name->url registry))
@@ -494,6 +481,16 @@
         ((number? value) (number->string value))
         (else "")))
 
+    (define (sexp-condition->json value)
+      (cond
+        ((not value) #f)
+        ((symbol? value) (symbol->string value))
+        ((string? value) value)
+        ((boolean? value) value)
+        ((number? value) (number->string value))
+        ((list? value) (list->vector (map sexp-condition->json value)))
+        (else #f)))
+
     (define (sexp-user->json form)
       (let ((fields (if (and (pair? form) (eq? (car form) 'user)) (cdr form) '())))
         `((id . ,(sexp-field fields 'id #f))
@@ -523,6 +520,7 @@
           (targets . ,(list->vector (map sexp-string-value (sexp-field-values fields 'targets))))
           (profiles . ,(sexp-symbol-vector (sexp-field-values fields 'profiles)))
           (compileModes . ,(sexp-symbol-vector (sexp-field-values fields 'compile-modes)))
+          (condition . ,(sexp-condition->json (sexp-field fields 'condition #f)))
           (features . ,(sexp-symbol-vector (sexp-field-values fields 'features))))))
 
     (define (sexp-feature-dependency->json form)
@@ -773,6 +771,31 @@
                 (else #f)))
           (json-array->list value))))
 
+    (define (registry-json-condition value)
+      (cond
+        ((not value) #f)
+        ((eq? value #t) #t)
+        ((symbol? value) value)
+        ((and (string? value) (non-empty-string? value)) (string->symbol value))
+        ((vector? value) (registry-json-condition (vector->list value)))
+        ((list? value)
+          (if (null? value)
+            #f
+            (let ((head (car value))
+                  (tail (cdr value)))
+              (cond
+                ((or (equal? head "and") (equal? head 'and)
+                   (equal? head "or") (equal? head 'or)
+                   (equal? head "not") (equal? head 'not))
+                  (cons (registry-json-symbol head 'unknown)
+                    (map registry-json-condition tail)))
+                ((and (or (string? head) (symbol? head)) (= (length tail) 1))
+                  (list (registry-json-symbol head 'unknown)
+                    (let ((value (car tail)))
+                      (if (symbol? value) (symbol->string value) value))))
+                (else #f)))))
+        (else #f)))
+
     (define (absolute-http-url? text)
       (or (string-prefix? "http://" text)
         (string-prefix? "https://" text)))
@@ -796,6 +819,7 @@
             (targets (registry-json-string-list (json-ref dep 'targets '#())))
             (profiles (registry-json-symbol-list (json-ref dep 'profiles '#())))
             (compile-modes (registry-json-symbol-list (json-ref dep 'compileModes '#())))
+            (condition (registry-json-condition (json-ref dep 'condition #f)))
             (legacy-target (json-string-ref dep 'target "")))
         `((name . ,(registry-json-name (json-string-ref dep 'name "")))
           (version . ,(let ((req (json-string-ref dep 'req "")))
@@ -814,7 +838,8 @@
                                 targets)))
              (if (null? all-targets) '() `((targets . ,all-targets))))
           ,@(if (null? profiles) '() `((profiles . ,profiles)))
-          ,@(if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
+          ,@(if (null? compile-modes) '() `((compile-modes . ,compile-modes)))
+          ,@(if condition `((condition . ,condition)) '()))))
 
     (define (registry-json-feature-dependency registry dep)
       `((feature . ,(registry-json-symbol (json-ref dep 'feature "") 'unknown))
@@ -921,6 +946,7 @@
         (targets . ,(json-ref dep 'targets '#()))
         (profiles . ,(json-ref dep 'profiles '#()))
         (compileModes . ,(json-ref dep 'compileModes '#()))
+        (condition . ,(json-ref dep 'condition #f))
         (features . ,(json-ref dep 'features '#()))))
 
     (define (sparse-index-version-row registry api entry)

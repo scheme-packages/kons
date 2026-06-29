@@ -13,13 +13,6 @@
     (kons options))
 
   (begin
-    (define (string-join xs sep)
-      (let loop ((rest xs) (out ""))
-        (cond
-          ((null? rest) out)
-          ((string=? out "") (loop (cdr rest) (car rest)))
-          (else (loop (cdr rest) (string-append out sep (car rest)))))))
-
     (define (command-string-option cmd name)
       (let ((value (command-option cmd name #f)))
         (if (string? value) value #f)))
@@ -104,7 +97,8 @@
         (dialects ,@(alist-ref dep 'dialects '()))
         (targets ,@(alist-ref dep 'targets '()))
         (profiles ,@(alist-ref dep 'profiles '()))
-        (compile-modes ,@(alist-ref dep 'compile-modes '()))))
+        (compile-modes ,@(alist-ref dep 'compile-modes '()))
+        (condition ,(alist-ref dep 'condition #f))))
 
     (define (registry-dependencies-list-sexp deps kind)
       (map (lambda (dep) (registry-dependency-sexp dep kind)) deps))

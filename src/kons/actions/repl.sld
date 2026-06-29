@@ -16,7 +16,7 @@
              (features (active-features manifest cmd)))
         (ensure-supported-active-features manifest features cmd)
         (if (command-flag? cmd "plan")
-          (let* ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+          (let* ((scheme (command-adapter-scheme manifest cmd))
                  (srcs (activation-source-roots-with-build manifest #f features cmd))
                  (command (adapter-repl-command-for-cmd manifest cmd scheme srcs)))
             (writeln
@@ -32,7 +32,7 @@
           (begin
             (ensure-runtime-activation-ready! manifest features cmd)
             (ensure-implementation-compiled! manifest features cmd)
-            (let* ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+            (let* ((scheme (command-adapter-scheme manifest cmd))
                    (srcs (activation-source-roots-with-build manifest #f features cmd))
                    (command (adapter-repl-command-for-cmd manifest cmd scheme srcs)))
               (check-system-dependencies manifest cmd #f features srcs)

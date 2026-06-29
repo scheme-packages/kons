@@ -1,7 +1,9 @@
 (import (scheme base)
   (scheme process-context)
   (srfi 64)
-  (kons implementation))
+  (kons implementation)
+  (kons manifest)
+  (kons runner))
 
 (test-begin "kons implementation")
 
@@ -33,6 +35,29 @@
   (implementation-mode-id
     (implementation-mode-for-dialects 'capy '(r6rs)))
   'capy-r6rs)
+
+(define dual-dialect-manifest
+  (parse-manifest-exprs
+    "/tmp/kons-implementation-test/kons.scm"
+    '((package
+        (name (example implementation))
+        (version "0.1.0")
+        (dialects r7rs r6rs)))))
+
+(check-equal
+  "capy default adapter prefers r7rs"
+  (adapter-scheme dual-dialect-manifest 'capy)
+  'capy)
+
+(check-equal
+  "capy explicit r6rs adapter"
+  (adapter-scheme dual-dialect-manifest 'capy 'r6rs)
+  'capy-r6rs)
+
+(check-equal
+  "guile explicit r6rs adapter"
+  (adapter-scheme dual-dialect-manifest 'guile 'r6rs)
+  'guile-r6rs)
 
 (check-equal
   "capy r6rs command"

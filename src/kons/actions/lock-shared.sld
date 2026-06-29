@@ -294,7 +294,7 @@
           lock
           'dialect
           (command-selected-dialect manifest cmd)
-          #f)
+          (context-option-explicit? cmd "dialect"))
         (lock-context-field-matches?
           lock
           'target
@@ -388,7 +388,7 @@
             (context-option-explicit? cmd "scheme"))
           (context-reason lock 'dialect
             (command-selected-dialect manifest cmd)
-            #f)
+            (context-option-explicit? cmd "dialect"))
           (context-reason lock 'target
             (command-option cmd "target" #f)
             (context-option-explicit? cmd "target"))

@@ -196,14 +196,49 @@ Dependencies can be limited to specific build contexts:
     (name (example r7rs-helper))
     (path "../r7rs-helper")
     (version "1.0.0")
-    (dialects r7rs)))
+    (dialects r7rs))
+  (cond-expand
+    (r6rs
+      (akku
+        (name "akku-r7rs")
+        (version "*"))))
+  (cond-expand
+    ((target-os linux)
+      (registry
+        (name (example linux-ffi))
+        (version "^1.0")))))
 ```
 
-Supported selectors are `schemes`, `implementations`, `dialects`, `targets`,
-`profiles`, and `compile-modes`. Selectors are stored in the lockfile, and
-explicit changes to `--scheme`, `--target`, `--profile`, or `--compile-mode`,
-as well as changes to the selected package dialect, require a matching lock
-update.
+Supported dependency selectors are `schemes`, `implementations`, `dialects`,
+`targets`, `profiles`, and `compile-modes`. Conditional dependencies use
+manifest `cond-expand` blocks. Selectors and expanded conditions are stored in
+the lockfile, and explicit changes to `--scheme`, `--target`, `--profile`, or
+`--compile-mode`, as well as changes to the selected package dialect, require a
+matching lock update.
+
+`cond-expand` predicates accept bare flags such as `unix` or `windows`,
+key/value checks such as `(target-arch x86_64)` or `(target-os linux)`,
+and `(and ...)`, `(or ...)`, and `(not ...)`. Available options come from the
+selected target triple, target Scheme implementation, package dialect, profile,
+compile mode, and active features. For example, `r6rs` and `(dialect r6rs)`
+match an R6RS package run, while `capy`, `(scheme capy)`, and
+`(implementation capy)` match the selected target implementation. Clauses use
+first-match semantics; `else` applies only when no earlier predicate matched.
+
+You can also apply one predicate to several dependencies:
+
+```scheme
+(dependencies
+  (cond-expand
+    ((and unix (target-arch x86_64))
+      (system (scheme file))
+      (registry (name (example unix64)) (version "^1.0")))
+    (else
+      (system (scheme base)))))
+```
+
+Top-level `cond-expand` blocks can wrap `dependencies`, `dev-dependencies`, and
+`overrides` blocks.
 
 ## Dependency commands
 
@@ -344,6 +379,10 @@ Import the generated helper in R7RS code:
           (example app kons features))
   (begin
     (feature-cond
+      ((and tls unix)
+       (define (message) "tls enabled on unix"))
+      ((target-os windows)
+       (define (message) "windows"))
       (tls
        (define (message) "tls enabled"))
       (else
@@ -355,8 +394,10 @@ The helper exports:
 | Binding | Meaning |
 | --- | --- |
 | `active-features` | List of active features. |
+| `active-condition-options` | Active kons condition options. |
 | `feature-enabled?` | Check a feature at runtime. |
-| `feature-cond` | Choose code by feature. |
+| `condition-enabled?` | Check a condition predicate at runtime. |
+| `feature-cond` | Choose code by feature or condition predicate. |
 
 For R6RS, import the same helpers.
 
@@ -469,6 +510,8 @@ Run with:
 ```sh
 kons --scheme capy run
 kons --scheme guile run
+kons --scheme capy --dialect r6rs run
+kons --scheme guile --dialect r6rs run
 kons --scheme chez run
 ```
 

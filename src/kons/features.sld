@@ -17,6 +17,7 @@
   (import (scheme base)
     (scheme cxr)
     (scheme file)
+    (kons conditions)
     (kons util)
     (kons implementation)
     (kons manifest)
@@ -26,13 +27,14 @@
 
   (begin
     (define-record-type <dependency-selection-context>
-      (make-dependency-selection-context scheme dialect target profile compile-mode)
+      (make-dependency-selection-context scheme dialect target profile compile-mode condition-options)
       dependency-selection-context?
       (scheme dependency-selection-context-scheme)
       (dialect dependency-selection-context-dialect)
       (target dependency-selection-context-target)
       (profile dependency-selection-context-profile)
-      (compile-mode dependency-selection-context-compile-mode))
+      (compile-mode dependency-selection-context-compile-mode)
+      (condition-options dependency-selection-context-condition-options))
 
     (define (feature-form manifest name)
       (let loop ((features (package-features manifest)))
@@ -111,12 +113,24 @@
         (if include-dev? (alist-ref manifest 'dev-dependencies '()) '())))
 
     (define (command-selected-dialect manifest cmd)
-      (let ((mode (implementation-mode-for-dialects
-                   (command-selected-scheme cmd)
-                   (package-dialects manifest))))
-        (or (and mode (implementation-mode-field mode 'selected-dialect #f))
-          (let ((dialects (package-dialects manifest)))
-            (and (pair? dialects) (car dialects))))))
+      (let ((requested (command-option cmd "dialect" #f))
+            (dialects (package-dialects manifest))
+            (scheme (command-selected-scheme cmd)))
+        (if requested
+          (let ((dialect (string->symbol requested)))
+            (unless (memq dialect dialects)
+              (manifest-error "selected dialect is not declared by package"
+                (package-name manifest)
+                dialect
+                dialects))
+            (unless (implementation-mode-for-dialects scheme (list dialect))
+              (manifest-error "selected scheme does not support selected dialect"
+                scheme
+                dialect))
+            dialect)
+          (let ((mode (implementation-mode-for-dialects scheme dialects)))
+            (or (and mode (implementation-mode-field mode 'selected-dialect #f))
+              (and (pair? dialects) (car dialects)))))))
 
     (define (command-dependency-selection-context manifest cmd)
       (make-dependency-selection-context
@@ -124,7 +138,14 @@
         (command-selected-dialect manifest cmd)
         (command-option cmd "target" #f)
         (command-selected-profile cmd)
-        (command-selected-compile-mode cmd)))
+        (command-selected-compile-mode cmd)
+        (condition-options
+          (command-option cmd "target" #f)
+          (command-selected-profile cmd)
+          '()
+          (command-selected-scheme cmd)
+          (command-selected-dialect manifest cmd)
+          (command-selected-compile-mode cmd))))
 
     (define (selector-matches-symbol? selected allowed)
       (or (null? allowed) (memq selected allowed)))
@@ -149,7 +170,10 @@
           (alist-ref dep 'profiles '()))
         (selector-matches-symbol?
           (dependency-selection-context-compile-mode context)
-          (alist-ref dep 'compile-modes '()))))
+          (alist-ref dep 'compile-modes '()))
+        (condition-predicate-true?
+          (alist-ref dep 'condition 'true)
+          (dependency-selection-context-condition-options context))))
 
     (define (dependency-applies? dep manifest cmd)
       (dependency-applies-in-context?
@@ -365,7 +389,9 @@
         (let ((profiles (alist-ref dep 'profiles '())))
           (if (null? profiles) '() `((profiles . ,profiles))))
         (let ((compile-modes (alist-ref dep 'compile-modes '())))
-          (if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
+          (if (null? compile-modes) '() `((compile-modes . ,compile-modes))))
+        (let ((condition (alist-ref dep 'condition #f)))
+          (if condition `((condition . ,condition)) '()))))
 
     (define (dependency-name=? a b)
       (and (dependency-name a)

@@ -31,6 +31,14 @@ You can also use `--scheme` on one command:
 kons --scheme gosh test
 ```
 
+When a Scheme can run more than one package dialect, use `--dialect` to select
+the package mode explicitly:
+
+```sh
+kons --scheme capy --dialect r6rs run
+kons --scheme guile --dialect r6rs test
+```
+
 The `kons` manager can run under `capy`, `guile`, `gauche`/`gosh`, and
 `chibi`/`chibi-scheme`.
 
@@ -444,13 +452,24 @@ In Scheme code, import the generated feature helper:
         (example app kons features))
 
 (feature-cond
+  ((target-os linux)
+   (define mode 'linux))
+  ((and tls unix)
+   (define mode 'unix-tls))
   (tls
    (define mode 'tls))
   (else
    (define mode 'plain)))
 ```
 
-The helper also gives `active-features` and `feature-enabled?`.
+`feature-cond` accepts feature names and kons condition predicates such as
+`unix`, `(target-os linux)`, `(target-arch x86_64)`, `(and ...)`,
+`(or ...)`, and `(not ...)`. It also sees the selected target implementation,
+package dialect, profile, and compile mode: for example `capy`,
+`(scheme capy)`, `(implementation capy)`, `r6rs`, `(dialect r6rs)`,
+`(profile release)`, and `(compile-mode compiled)`. The helper also gives
+`active-features`, `active-condition-options`, `feature-enabled?`, and
+`condition-enabled?`.
 
 ## Build hooks
 
@@ -586,6 +605,8 @@ Run it:
 ```sh
 kons --scheme capy run
 kons --scheme guile run
+kons --scheme capy --dialect r6rs run
+kons --scheme guile --dialect r6rs run
 kons --scheme chez run
 ```
 

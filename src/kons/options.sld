@@ -51,6 +51,7 @@
         "mit"))
 
     (define build-profiles '("debug" "release"))
+    (define package-dialects '("r7rs" "r6rs"))
     (define compile-modes '("compiled" "fresh-auto"))
     (define log-levels '("quiet" "error" "warn" "warning" "info" "debug" "trace" "verbose"))
     (define message-formats '("text" "json"))
@@ -82,6 +83,13 @@
         "NAME"
         'allowed:
         scheme-implementations)
+      (option "dialect"
+        'help:
+        "Package dialect to run when the implementation supports more than one."
+        'value-help:
+        "NAME"
+        'allowed:
+        package-dialects)
       (option "features"
         'help:
         "Comma-separated feature names to enable."
@@ -198,6 +206,13 @@
         "NAME"
         'allowed:
         scheme-implementations)
+      (option "dialect"
+        'help:
+        "Package dialect to run when the implementation supports more than one."
+        'value-help:
+        "NAME"
+        'allowed:
+        package-dialects)
       (option "features"
         'help:
         "Comma-separated feature names to enable."
@@ -385,6 +400,13 @@
         "NAME"
         'allowed:
         scheme-implementations)
+      (option "dialect"
+        'help:
+        "Package dialect to run when the implementation supports more than one."
+        'value-help:
+        "NAME"
+        'allowed:
+        package-dialects)
       (option "features"
         'help:
         "Comma-separated feature names to enable."

@@ -87,6 +87,15 @@
               (source-path ,(locked-registry-entry-root entry)))))
         '()))
 
+    (define (tree-lock-selector-fields entry)
+      (append
+        (maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
+        (maybe-rest-field 'targets (lock-entry-rest entry 'targets))
+        (maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
+        (maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))
+        (let ((condition (lock-entry-ref entry 'condition #f)))
+          (if condition `((condition ,condition)) '()))))
+
     (define (tree-dependency-from-lock-entry entry . maybe-manifest)
       (cond
         ((and (pair? entry) (eq? (car entry) 'system))
@@ -94,10 +103,7 @@
             (scope ,(lock-entry-ref entry 'scope 'runtime))
             (type system)
             (names ,@(lock-entry-rest entry 'names))
-            ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-            ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
-            ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
-            ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
+            ,@(tree-lock-selector-fields entry)))
         ((eq? (lock-entry-type entry) 'path)
           `(dependency
             (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -106,10 +112,7 @@
             (path ,(lock-entry-ref entry 'path ""))
             (raw ,(lock-entry-ref entry 'raw #f))
             (source-hash ,(lock-entry-ref entry 'source-hash #f))
-            ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-            ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
-            ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
-            ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
+            ,@(tree-lock-selector-fields entry)))
         ((eq? (lock-entry-type entry) 'workspace)
           `(dependency
             (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -118,10 +121,7 @@
             (member ,(lock-entry-ref entry 'member ""))
             (path ,(lock-entry-ref entry 'path ""))
             (source-hash ,(lock-entry-ref entry 'source-hash #f))
-            ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-            ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
-            ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
-            ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
+            ,@(tree-lock-selector-fields entry)))
         ((eq? (lock-entry-type entry) 'git)
           `(dependency
             (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -131,10 +131,7 @@
             (rev ,(lock-entry-ref entry 'rev #f))
             (subpath ,(lock-entry-ref entry 'subpath #f))
             (commit ,(lock-entry-ref entry 'commit #f))
-            ,@(maybe-rest-field 'schemes (lock-entry-rest entry 'schemes))
-            ,@(maybe-rest-field 'targets (lock-entry-rest entry 'targets))
-            ,@(maybe-rest-field 'profiles (lock-entry-rest entry 'profiles))
-            ,@(maybe-rest-field 'compile-modes (lock-entry-rest entry 'compile-modes))))
+            ,@(tree-lock-selector-fields entry)))
         ((eq? (lock-entry-type entry) 'registry)
           `(dependency
             (scope ,(lock-entry-ref entry 'scope 'runtime))
@@ -145,6 +142,7 @@
             (registry ,(lock-entry-ref entry 'registry "default"))
             (checksum ,(lock-entry-ref entry 'checksum ""))
             (id ,(lock-entry-ref entry 'id ""))
+            ,@(tree-lock-selector-fields entry)
             ,@(if (pair? maybe-manifest)
                (tree-dependency-source-fields (car maybe-manifest) entry)
                '())))
@@ -161,7 +159,8 @@
             (source-kind ,(lock-entry-ref entry 'source-kind 'unknown))
             (trust verified-index)
             (cache ,(if (akku-source-ready? entry) 'ready 'missing))
-            (source-cache-path ,(lock-entry-ref entry 'source-cache-path ""))))
+            (source-cache-path ,(lock-entry-ref entry 'source-cache-path ""))
+            ,@(tree-lock-selector-fields entry)))
         (else
           `(dependency
             (scope ,(lock-entry-ref entry 'scope 'runtime))

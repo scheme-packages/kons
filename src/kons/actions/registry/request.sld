@@ -12,8 +12,7 @@
     (kons names)
     (kons manifest)
     (kons options)
-    (kons registry)
-    (kons actions registry route))
+    (kons registry))
 
   (begin
     (define (registry-option cmd)

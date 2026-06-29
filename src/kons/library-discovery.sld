@@ -42,13 +42,6 @@
     (define (package-libraries manifest)
       (alist-ref (alist-ref manifest 'package '()) 'libraries '()))
 
-    (define (string-join items sep)
-      (let loop ((xs items) (out ""))
-        (cond
-          ((null? xs) out)
-          ((string=? out "") (loop (cdr xs) (car xs)))
-          (else (loop (cdr xs) (string-append out sep (car xs)))))))
-
     (define (library-name-part? value)
       (or (symbol? value) (number? value)))
 

@@ -155,15 +155,8 @@
           (reverse out)
           (loop (cdr rest) (append (reverse (proc (car rest))) out)))))
 
-    (define (join-strings items sep)
-      (let loop ((rest items) (out ""))
-        (cond
-          ((null? rest) out)
-          ((string=? out "") (loop (cdr rest) (car rest)))
-          (else (loop (cdr rest) (string-append out sep (car rest)))))))
-
     (define (path-list-env paths)
-      (join-strings paths ":"))
+      (string-join paths ":"))
 
     (define (append-suffix suffix value)
       (string-append value suffix))
@@ -202,8 +195,8 @@
         (case style
           ((capy)
             (append
-              (if (null? prepend) '() (list "-L" (join-strings prepend ",")))
-              (if (null? append-paths) '() (list "-A" (join-strings append-paths ",")))))
+              (if (null? prepend) '() (list "-L" (string-join prepend ",")))
+              (if (null? append-paths) '() (list "-A" (string-join append-paths ",")))))
           ((prepend-append)
             (append
               (path-option-argv
@@ -256,7 +249,7 @@
 
     (define (cyclone-compile-run-script load-argv)
       (let ((compile-command
-              (join-strings
+              (string-join
                 (append
                   (list "cyclone")
                   (map shell-quote load-argv)
@@ -315,7 +308,7 @@
         "mkdir -p \"$tmp\"; "
         ": > \"$prelude\"; "
         "trap 'rm -rf \"$tmp\"' 0 1 2 15; "
-        (join-strings (map mit-register-command src) "")
+        (string-join (map mit-register-command src) "")
         "exec "
         (shell-quote (implementation-mode-command mode))
         " --batch-mode --quiet --load \"$prelude\" --load \"$script\" -- \"$@\""))
@@ -394,7 +387,7 @@
     (define (library-output-path compiled-root name suffix)
       (path-join compiled-root
         (string-append
-          (join-strings (map library-name-part->path name) "/")
+          (string-join (map library-name-part->path name) "/")
           suffix)))
 
     (define (kind-alist-ref alist key default)
@@ -415,7 +408,7 @@
       (let ((style (implementation-mode-field mode 'compiler-load-path-style 'none))
             (flag (implementation-mode-field mode 'compiler-load-path-flag "-L")))
         (case style
-          ((comma) (if (null? srcs) '() (list flag (join-strings srcs ","))))
+          ((comma) (if (null? srcs) '() (list flag (string-join srcs ","))))
           ((repeat) (path-option-argv flag srcs))
           (else '()))))
 
@@ -443,7 +436,7 @@
         (if (and version-argv (not (null? version-argv)))
           (string-append command
             " "
-            (join-strings (map shell-quote version-argv) " ")
+            (string-join (map shell-quote version-argv) " ")
             " 2>&1 | head -1")
           #f)))
 
@@ -455,7 +448,7 @@
               "( timeout 2s "
               (shell-quote command)
               " "
-              (join-strings (map shell-quote version-argv) " ")
+              (string-join (map shell-quote version-argv) " ")
               " || true ) 2>&1")))))
 
     (define (command-available? command)

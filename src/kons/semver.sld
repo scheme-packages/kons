@@ -15,14 +15,6 @@
                    (else (string-length version)))))
         (substring version 0 end)))
 
-    (define (string-index s ch)
-      (let ((len (string-length s)))
-        (let loop ((i 0))
-          (cond
-            ((= i len) #f)
-            ((char=? (string-ref s i) ch) i)
-            (else (loop (+ i 1)))))))
-
     (define (string->integer/default text default)
       (let ((value (string->number text)))
         (if (and value (integer? value)) value default)))
@@ -110,66 +102,6 @@
             (number->string (+ (string->integer/default (cadr parts) 0) 1))
             ".0"))))
 
-    (define (trim-leading-space s)
-      (let ((len (string-length s)))
-        (let loop ((i 0))
-          (if (and (< i len)
-               (let ((ch (string-ref s i)))
-                 (or (char=? ch #\space)
-                   (char=? ch #\tab)
-                   (char=? ch #\newline)
-                   (char=? ch #\return))))
-            (loop (+ i 1))
-            (substring s i len)))))
-
-    (define (trim-trailing-space s)
-      (let loop ((i (- (string-length s) 1)))
-        (cond
-          ((< i 0) "")
-          ((let ((ch (string-ref s i)))
-              (or (char=? ch #\space)
-                (char=? ch #\tab)
-                (char=? ch #\newline)
-                (char=? ch #\return)))
-            (loop (- i 1)))
-          (else (substring s 0 (+ i 1))))))
-
-    (define (trim-space s)
-      (trim-trailing-space (trim-leading-space s)))
-
-    (define (semver-space? ch)
-      (or (char=? ch #\space)
-        (char=? ch #\tab)
-        (char=? ch #\newline)
-        (char=? ch #\return)))
-
-    (define (split-whitespace s)
-      (let ((len (string-length s)))
-        (let loop ((i 0) (start #f) (out '()))
-          (cond
-            ((= i len)
-              (reverse
-                (if start
-                  (cons (substring s start len) out)
-                  out)))
-            ((semver-space? (string-ref s i))
-              (if start
-                (loop (+ i 1) #f (cons (substring s start i) out))
-                (loop (+ i 1) #f out)))
-            (start (loop (+ i 1) start out))
-            (else (loop (+ i 1) i out))))))
-
-    (define (join-strings items sep)
-      (cond
-        ((null? items) "")
-        ((null? (cdr items)) (car items))
-        (else (string-append (car items) sep (join-strings (cdr items) sep)))))
-
-    (define (string-prefix? prefix s)
-      (let ((plen (string-length prefix)))
-        (and (>= (string-length s) plen)
-          (string=? prefix (substring s 0 plen)))))
-
     (define (semver-satisfies-single? version req)
       (and (not (string=? req ""))
         (cond
@@ -219,12 +151,12 @@
                 (pair? clause)
                 (semver-satisfies-compound?
                   version
-                  (join-strings (reverse clause) " "))))
+                  (string-join (reverse clause) " "))))
             ((string=? (car items) "||")
               (or (and (pair? clause)
                    (semver-satisfies-compound?
                      version
-                     (join-strings (reverse clause) " ")))
+                     (string-join (reverse clause) " ")))
                 (loop (cdr items) '() #t)))
             (else (loop (cdr items) (cons (car items) clause) saw-or?))))))
 

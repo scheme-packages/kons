@@ -7,7 +7,6 @@
     run-command-record
     scheme-command
     launcher-command
-    string-join
     dependency-source-roots
     activation-source-roots
     locked-activation-source-roots
@@ -25,6 +24,7 @@
     run-script
     collect-scheme-files
     collect-test-files
+    command-adapter-scheme
     adapter-scheme)
   (import (scheme base)
     (scheme cxr)
@@ -52,19 +52,39 @@
     (kons actions paths))
 
   (begin
-    (define (adapter-scheme manifest scheme)
-      (let* ((dialects (package-dialects manifest))
+    (define (adapter-scheme manifest scheme . maybe-dialect)
+      (let* ((declared-dialects (package-dialects manifest))
+             (requested-dialect (and (pair? maybe-dialect) (car maybe-dialect)))
+             (dialects (if requested-dialect (list requested-dialect) declared-dialects))
              (mode (implementation-mode-for-dialects scheme dialects)))
-        (if mode
-          (implementation-mode-id mode)
-          (if (and (memq 'r7rs dialects)
-               (implementation-mode-for-dialects scheme '(r6rs)))
+        (cond
+          (mode (implementation-mode-id mode))
+          ((and requested-dialect (not (memq requested-dialect declared-dialects)))
+            (manifest-error "selected dialect is not declared by package"
+              (package-name manifest)
+              requested-dialect
+              declared-dialects))
+          (requested-dialect
+            (manifest-error "selected scheme does not support selected dialect"
+              scheme
+              requested-dialect))
+          ((and (memq 'r7rs declared-dialects)
+             (implementation-mode-for-dialects scheme '(r6rs)))
             (implementation-mode-id
-              (implementation-mode-for-dialects scheme '(r6rs)))
+              (implementation-mode-for-dialects scheme '(r6rs))))
+          (else
             (manifest-error "unsupported dialect for selected implementation"
               (package-name manifest)
-              dialects
+              declared-dialects
               scheme)))))
+
+    (define (command-adapter-scheme manifest cmd)
+      (if (command-option cmd "dialect" #f)
+        (adapter-scheme
+          manifest
+          (command-selected-scheme cmd)
+          (command-selected-dialect manifest cmd))
+        (adapter-scheme manifest (command-selected-scheme cmd))))
 
     (define (compile-mode-arg maybe index default)
       (let loop ((items maybe) (n index))
@@ -130,13 +150,6 @@
           "exec "
           (shell-join argv)
           " \"$@\"")))
-
-    (define (string-join xs sep)
-      (let loop ((rest xs) (out ""))
-        (cond
-          ((null? rest) out)
-          ((string=? out "") (loop (cdr rest) (car rest)))
-          (else (loop (cdr rest) (string-append out sep (car rest)))))))
 
     (define (source-root-from-package-root package-root)
       (let ((manifest-path (path-join package-root "kons.scm")))
@@ -605,7 +618,7 @@
           (delete-file script))))
 
     (define (check-system-dependencies manifest cmd include-dev? features srcs)
-      (let ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+      (let ((scheme (command-adapter-scheme manifest cmd))
             (available-srcs (filter file-exists? srcs)))
         (ui-status "checking system dependencies")
         (for-each
@@ -838,8 +851,7 @@
                     (cons (job-id job) roots)))))))))
 
     (define (run-script manifest cmd script include-dev? rest)
-      (let* ((scheme (command-selected-scheme cmd))
-             (adapted-scheme (adapter-scheme manifest scheme))
+      (let* ((adapted-scheme (command-adapter-scheme manifest cmd))
              (features (active-features manifest cmd))
              (srcs (effective-activation-source-roots manifest include-dev? features cmd))
              (command (adapter-command adapted-scheme srcs script rest 'normal '() (command-selected-profile cmd))))

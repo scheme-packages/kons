@@ -24,7 +24,7 @@
             (writeln (run-targets-form manifest)))
           ((command-flag? cmd "plan")
             (let* ((main (selected-run-script manifest cmd))
-                   (scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+                   (scheme (command-adapter-scheme manifest cmd))
                    (srcs (activation-source-roots-with-build manifest #f features cmd))
                    (command (adapter-command-for-cmd manifest cmd scheme srcs main (command-rest cmd))))
               (writeln

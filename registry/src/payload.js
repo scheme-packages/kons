@@ -19,6 +19,65 @@ function normalizeStringList(value, field, errors, { maxItems = 64 } = {}) {
   }).filter(Boolean);
 }
 
+function normalizeCondition(value, field, errors, depth = 0) {
+  if (value === undefined || value === null) return null;
+  if (value === false) return false;
+  if (depth > 16) {
+    errors.push({ field, message: "is nested too deeply" });
+    return null;
+  }
+  if (value === true) return true;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      errors.push({ field, message: "must not be empty" });
+      return null;
+    }
+    return trimmed;
+  }
+  if (!Array.isArray(value)) {
+    errors.push({ field, message: "must be a string, boolean, array, or null" });
+    return null;
+  }
+  if (!value.length) {
+    errors.push({ field, message: "array form must not be empty" });
+    return null;
+  }
+  const head = normalizeCondition(value[0], `${field}[0]`, errors, depth + 1);
+  if (typeof head !== "string") {
+    errors.push({ field: `${field}[0]`, message: "operator or key must be a string" });
+    return null;
+  }
+  if (["and", "or"].includes(head)) {
+    const predicates = value.slice(1)
+      .map((item, index) => normalizeCondition(item, `${field}[${index + 1}]`, errors, depth + 1))
+      .filter((item) => item !== null);
+    return [head, ...predicates];
+  }
+  if (head === "all" || head === "any") {
+    errors.push({ field, message: `${head} is not a supported condition operator; use ${head === "all" ? "and" : "or"}` });
+    return null;
+  }
+  if (head === "condition") {
+    errors.push({ field, message: "condition is not a supported condition operator" });
+    return null;
+  }
+  if (head === "not") {
+    if (value.length !== 2) errors.push({ field, message: `${head} expects one predicate` });
+    return [head, normalizeCondition(value[1], `${field}[1]`, errors, depth + 1)];
+  }
+  if (value.length === 2) {
+    const optionValue = value[1];
+    if (typeof optionValue !== "string" && typeof optionValue !== "number" && typeof optionValue !== "boolean") {
+      errors.push({ field: `${field}[1]`, message: "condition value must be a string, number, or boolean" });
+      return null;
+    }
+    return [head, String(optionValue)];
+  }
+  errors.push({ field, message: "condition key/value form must be [key, value]" });
+  return null;
+}
+
 function normalizeKeywords(value, errors) {
   const seen = new Set();
   const out = [];
@@ -88,6 +147,7 @@ function normalizeDependencies(raw, errors) {
     const targets = normalizeStringList(dep.targets, `${prefix}.targets`, errors);
     const profiles = normalizeStringList(dep.profiles, `${prefix}.profiles`, errors);
     const compileModes = normalizeStringList(dep.compileModes, `${prefix}.compileModes`, errors);
+    const condition = normalizeCondition(dep.condition, `${prefix}.condition`, errors);
     const target = dep.target ? String(dep.target).trim() : null;
     const allTargets = target ? [target, ...targets.filter((item) => item !== target)] : targets;
     return {
@@ -103,6 +163,7 @@ function normalizeDependencies(raw, errors) {
       targets: allTargets,
       profiles,
       compileModes,
+      condition,
       features,
     };
   }).filter((dep) => dep && dep.name && dep.req);

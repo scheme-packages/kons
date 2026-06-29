@@ -105,17 +105,11 @@
       (and (string? name)
         (string-prefix? "snow/list/" name)))
 
-    (define (join-strings items sep)
-      (cond
-        ((null? items) "")
-        ((null? (cdr items)) (car items))
-        (else (string-append (car items) sep (join-strings (cdr items) sep)))))
-
     (define (internal-snow-name->user-name name)
       (if (internal-snow-name? name)
         (string-append
           "("
-          (join-strings (string-split (substring name 10 (string-length name)) #\/) " ")
+          (string-join (string-split (substring name 10 (string-length name)) #\/) " ")
           ")")
         name))
 

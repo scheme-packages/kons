@@ -11,8 +11,7 @@
           (kons util)
           (kons registry)
           (kons options)
-          (kons compat json)
-          (kons actions registry route))
+          (kons compat json))
 
   (begin
 (define (take-list items limit)

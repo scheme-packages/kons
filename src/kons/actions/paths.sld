@@ -90,22 +90,6 @@
     (define (default-binary-name manifest)
       (symbol->string (last-symbol (package-name manifest) 'main)))
 
-    (define (string-contains? haystack needle)
-      (let ((h-len (string-length haystack))
-            (n-len (string-length needle)))
-        (let loop ((i 0))
-          (cond
-            ((= n-len 0) #t)
-            ((> (+ i n-len) h-len) #f)
-            ((string=? (substring haystack i (+ i n-len)) needle) #t)
-            (else (loop (+ i 1)))))))
-
-    (define (string-prefix? prefix s)
-      (let ((plen (string-length prefix))
-            (slen (string-length s)))
-        (and (>= slen plen)
-          (string=? prefix (substring s 0 plen)))))
-
     (define (package-field-rest package key)
       (let ((field (assq key package)))
         (if field (cdr field) '())))

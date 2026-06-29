@@ -40,6 +40,7 @@
     manifest-source-root)
   (import (scheme base)
     (scheme file)
+    (kons conditions)
     (kons util)
     (kons akku manifest)
     (kons snow manifest))
@@ -51,6 +52,147 @@
       (if current-manifest-path
         (cons name current-manifest-path)
         name))
+
+    (define (condition-field-predicate field context)
+      (unless (and (pair? field)
+               (eq? (car field) 'condition)
+               (pair? (cdr field))
+               (null? (cddr field)))
+        (manifest-error "condition field requires exactly one predicate" (source-context context) field))
+      (let ((predicate (cadr field)))
+        (unless (condition-predicate? predicate)
+          (manifest-error "invalid condition predicate" (source-context context) predicate))
+        predicate))
+
+    (define (true-predicate? predicate)
+      (or (eq? predicate #t) (eq? predicate 'true)))
+
+    (define (combine-condition-predicates outer inner)
+      (cond
+        ((true-predicate? outer) inner)
+        ((true-predicate? inner) outer)
+        (else `(and ,outer ,inner))))
+
+    (define (dependency-form-with-condition dependency predicate)
+      (unless (and (pair? dependency) (symbol? (car dependency)))
+        (manifest-error "expected dependency form in cond-expand clause" dependency))
+      (let loop ((fields (cdr dependency)) (out '()) (done? #f))
+        (cond
+          ((null? fields)
+            (cons (car dependency)
+              (reverse
+                (if (or done? (true-predicate? predicate))
+                  out
+                  (cons `(condition ,predicate) out)))))
+          ((and (pair? (car fields)) (eq? (caar fields) 'condition))
+            (let ((existing (condition-field-predicate (car fields) 'dependency-condition)))
+              (loop
+                (cdr fields)
+                (cons `(condition ,(combine-condition-predicates predicate existing)) out)
+                #t)))
+          (else (loop (cdr fields) (cons (car fields) out) done?)))))
+
+    (define (condition-dependency-forms predicate forms)
+      (map
+        (lambda (form) (dependency-form-with-condition form predicate))
+        (append-map expand-dependency-form forms)))
+
+    (define (previous-cond-expand-guard predicates)
+      (cond
+        ((null? predicates) #f)
+        ((null? (cdr predicates)) `(not ,(car predicates)))
+        (else `(not (or ,@predicates)))))
+
+    (define (cond-expand-effective-predicate requirement previous)
+      (cond
+        ((eq? requirement 'else)
+          (or (previous-cond-expand-guard previous) 'true))
+        ((not (condition-predicate? requirement))
+          (manifest-error "invalid cond-expand predicate" (source-context 'cond-expand) requirement))
+        ((null? previous) requirement)
+        (else `(and ,(previous-cond-expand-guard previous) ,requirement))))
+
+    (define (cond-expand-clause-requirement clause)
+      (unless (and (pair? clause) (pair? (cdr clause)))
+        (manifest-error "cond-expand clause requires a predicate and body" (source-context 'cond-expand) clause))
+      (car clause))
+
+    (define (cond-expand-clause-body clause)
+      (cdr clause))
+
+    (define (expand-cond-expand-dependency-form form)
+      (let loop ((clauses (cdr form)) (previous '()) (out '()) (seen-else? #f))
+        (cond
+          ((null? clauses) (reverse out))
+          (seen-else?
+            (manifest-error "else must be the last cond-expand clause" (source-context 'cond-expand) form))
+          (else
+            (let* ((clause (car clauses))
+                   (requirement (cond-expand-clause-requirement clause))
+                   (predicate (cond-expand-effective-predicate requirement previous))
+                   (expanded (condition-dependency-forms predicate (cond-expand-clause-body clause))))
+              (loop
+                (cdr clauses)
+                (if (eq? requirement 'else) previous (append previous (list requirement)))
+                (append (reverse expanded) out)
+                (eq? requirement 'else)))))))
+
+    (define (expand-dependency-form form)
+      (cond
+        ((and (pair? form) (eq? (car form) 'cond-expand))
+          (expand-cond-expand-dependency-form form))
+        (else (list form))))
+
+    (define (expand-dependency-block-form form)
+      (cons (car form) (append-map expand-dependency-form (cdr form))))
+
+    (define (expand-cond-expand-top-level-form form)
+      (let loop ((clauses (cdr form)) (previous '()) (out '()) (seen-else? #f))
+        (cond
+          ((null? clauses) (reverse out))
+          (seen-else?
+            (manifest-error "else must be the last cond-expand clause" (source-context 'cond-expand) form))
+          (else
+            (let* ((clause (car clauses))
+                   (requirement (cond-expand-clause-requirement clause))
+                   (predicate (cond-expand-effective-predicate requirement previous))
+                   (expanded
+                     (append-map
+                       (lambda (inner)
+                         (case (form-kind inner)
+                           ((dependencies dev-dependencies overrides)
+                             (list
+                               (expand-dependency-block-form
+                                 (cons (car inner)
+                                   (condition-dependency-forms predicate (cdr inner))))))
+                           ((cond-expand)
+                             (map
+                               (lambda (block)
+                                 (expand-dependency-block-form
+                                   (cons (car block)
+                                     (condition-dependency-forms predicate (cdr block)))))
+                               (expand-cond-expand-top-level-form inner)))
+                           (else
+                             (manifest-error
+                               "manifest cond-expand can wrap dependencies, dev-dependencies, or overrides"
+                               (source-context 'cond-expand)
+                               inner))))
+                       (cond-expand-clause-body clause))))
+              (loop
+                (cdr clauses)
+                (if (eq? requirement 'else) previous (append previous (list requirement)))
+                (append (reverse expanded) out)
+                (eq? requirement 'else)))))))
+
+    (define (expand-manifest-condition-forms exprs)
+      (append-map
+        (lambda (expr)
+          (case (form-kind expr)
+            ((cond-expand) (expand-cond-expand-top-level-form expr))
+            ((dependencies dev-dependencies overrides)
+              (list (expand-dependency-block-form expr)))
+            (else (list expr))))
+        exprs))
 
     (define (parse-package form)
       (let ((fields (cdr form)))
@@ -161,10 +303,7 @@
           (when (feature-property? item)
             (case (car item)
               ((dependencies)
-                (for-each
-                  (lambda (dep)
-                    (parse-dependency dep 'runtime))
-                  (cdr item)))
+                (parse-dependency-block (list item) 'dependencies 'runtime))
               ((native?)
                 (unless (and (pair? (cdr item))
                          (boolean? (cadr item))
@@ -259,7 +398,10 @@
           (authors . ,authors))))
 
     (define (parse-workspace-dependencies forms)
-      (map (lambda (dep) (parse-dependency dep 'runtime)) forms))
+      (parse-dependency-block
+        (list (cons 'dependencies forms))
+        'dependencies
+        'runtime))
 
     (define-record-type <workspace-inheritance>
       (make-workspace-inheritance package-defaults dependency-defaults)
@@ -395,7 +537,7 @@
           (let ((fields (cdr form)))
             (ensure-known-fields
               fields
-              '(name path raw version registry features optional schemes implementations dialects targets profiles compile-modes)
+              '(name path raw version registry features optional schemes implementations dialects targets profiles compile-modes condition)
               (source-context 'path-dependency))
             (let ((name (field-ref fields 'name #f))
                   (path (field-ref fields 'path #f))
@@ -416,7 +558,7 @@
           (let ((fields (cdr form)))
             (ensure-known-fields
               fields
-              '(name version registry features optional schemes implementations dialects targets profiles compile-modes)
+              '(name version registry features optional schemes implementations dialects targets profiles compile-modes condition)
               (source-context 'workspace-dependency))
             (let ((name (field-ref fields 'name #f))
                   (selectors (dependency-selectors fields)))
@@ -431,7 +573,7 @@
           (let ((fields (cdr form)))
             (ensure-known-fields
               fields
-              '(name url rev subpath version registry features optional schemes implementations dialects targets profiles compile-modes)
+              '(name url rev subpath version registry features optional schemes implementations dialects targets profiles compile-modes condition)
               (source-context 'git-dependency))
             (let ((name (field-ref fields 'name #f))
                   (url (field-ref fields 'url #f))
@@ -452,7 +594,8 @@
                 (dependency-publish-metadata fields form)
                 selectors))))
         ((system)
-          (let ((names (field-rest (cdr form) 'names #f)))
+          (let ((fields (cdr form))
+                (names (field-rest (cdr form) 'names #f)))
             (append
               `((type . system)
                 (scope . ,scope)
@@ -461,14 +604,14 @@
                            (filter
                              (lambda (item)
                                (not (and (pair? item)
-                                     (member (car item) '(schemes implementations dialects targets profiles compile-modes)))))
+                                     (member (car item) '(schemes implementations dialects targets profiles compile-modes condition)))))
                              (cdr form)))))
-              (dependency-selectors (cdr form)))))
+              (dependency-selectors fields))))
         ((registry)
           (let ((fields (cdr form)))
             (ensure-known-fields
               fields
-              '(name version registry features optional schemes implementations dialects targets profiles compile-modes)
+              '(name version registry features optional schemes implementations dialects targets profiles compile-modes condition)
               (source-context 'registry-dependency))
             (let ((name (field-ref fields 'name #f))
                   (version (field-ref fields 'version "*"))
@@ -533,29 +676,45 @@
             (dialects (field-rest fields 'dialects '()))
             (targets (field-rest fields 'targets '()))
             (profiles (field-rest fields 'profiles '()))
-            (compile-modes (field-rest fields 'compile-modes '())))
+            (compile-modes (field-rest fields 'compile-modes '()))
+            (condition (dependency-condition-selector fields)))
         (append
           (if (null? schemes) '() `((schemes . ,schemes)))
           (if (null? dialects) '() `((dialects . ,dialects)))
           (if (null? targets) '() `((targets . ,targets)))
           (if (null? profiles) '() `((profiles . ,profiles)))
-          (if (null? compile-modes) '() `((compile-modes . ,compile-modes))))))
+          (if (null? compile-modes) '() `((compile-modes . ,compile-modes)))
+          (if condition `((condition . ,condition)) '()))))
+
+    (define (dependency-condition-selector fields)
+      (let loop ((items fields) (out #f))
+        (cond
+          ((null? items) out)
+          ((and (pair? (car items)) (eq? (caar items) 'condition))
+            (let ((predicate (condition-field-predicate (car items) 'dependency-condition)))
+              (loop
+                (cdr items)
+              (if out `(and ,out ,predicate) predicate))))
+          (else (loop (cdr items) out)))))
 
     (define (parse-dependency-block exprs kind scope)
-      (let ((block (find-form kind exprs)))
-        (if block
-          (map (lambda (dep) (parse-dependency dep scope)) (cdr block))
-          '())))
+      (append-map
+        (lambda (block)
+          (let ((expanded (expand-dependency-block-form block)))
+            (map (lambda (dep) (parse-dependency dep scope)) (cdr expanded))))
+        (forms-of-kind kind exprs)))
 
     (define (parse-overrides exprs)
-      (let ((block (find-form 'overrides exprs)))
-        (if block
-          (map (lambda (dep) (parse-dependency dep 'override)) (cdr block))
-          '())))
+      (append-map
+        (lambda (block)
+          (let ((expanded (expand-dependency-block-form block)))
+            (map (lambda (dep) (parse-dependency dep 'override)) (cdr expanded))))
+        (forms-of-kind 'overrides exprs)))
 
     (define (parse-manifest-exprs path exprs)
       (set! current-manifest-path path)
-      (let* ((version-form (find-form 'kons-version exprs))
+      (let* ((exprs (expand-manifest-condition-forms exprs))
+             (version-form (find-form 'kons-version exprs))
              (package-form (find-form 'package exprs))
              (workspace-form (find-form 'workspace exprs)))
         (when version-form

@@ -59,12 +59,6 @@
           (newline out)))
       (write-akku-store-metadata! entry dest source))
 
-    (define (string-prefix? prefix text)
-      (let ((plen (string-length prefix))
-            (tlen (string-length text)))
-        (and (>= tlen plen)
-          (string=? prefix (substring text 0 plen)))))
-
     (define (path-prefix-root? root path)
       (let* ((root* (absolute-path root))
              (path* (absolute-path path))
@@ -243,13 +237,6 @@
           (dependency-error "unsupported Akku source kind"
             (lock-entry-ref entry 'source-kind #f)
             (lock-entry-ref entry 'name '())))))
-
-    (define (string-join items sep)
-      (let loop ((xs items) (out ""))
-        (cond
-          ((null? xs) out)
-          ((string=? out "") (loop (cdr xs) (car xs)))
-          (else (loop (cdr xs) (string-append out sep (car xs)))))))
 
     (define (library-name-part->string value)
       (cond

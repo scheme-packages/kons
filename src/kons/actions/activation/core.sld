@@ -113,7 +113,7 @@
         manifest
         lock
         include-dev?
-        (adapter-scheme manifest (command-selected-scheme cmd))))
+        (command-adapter-scheme manifest cmd)))
 
     (define (ensure-activation-ready-core! manifest features include-dev? cmd)
       (let ((offline? (or (command-flag? cmd "offline")
@@ -177,19 +177,25 @@
         (materialize-local-sources manifest features include-dev? #f cmd)
         (materialize-lock-sources manifest (external-only-lock lock) include-dev? #f cmd)))
 
-    (define (build-token manifest features profile)
+    (define (build-token manifest features cmd)
       (safe-store-token
         (string-append (name->string (package-name manifest))
           "-"
           (if (package-version manifest) (package-version manifest) "0")
           "-"
-          (symbol->string profile)
+          (symbol->string (command-selected-scheme cmd))
+          "-"
+          (or (command-option cmd "target" #f) "host")
+          "-"
+          (symbol->string (command-selected-profile cmd))
+          "-"
+          (symbol->string (command-selected-compile-mode cmd))
           "-"
           (string-join (map symbol->string features) "+"))))
 
     (define (build-output-dir manifest features cmd)
       (path-join
-        (path-join (project-kons-path manifest "builds") (build-token manifest features (command-selected-profile cmd)))
+        (path-join (project-kons-path manifest "builds") (build-token manifest features cmd))
         (safe-store-token (name->string (package-name manifest)))))
 
     (define (has-build-hooks? manifest)
@@ -319,7 +325,7 @@
         (path-join
           (path-join (kons-store-root) "builds")
           (string-append
-            (build-token dep-manifest dep-features (command-selected-profile cmd))
+            (build-token dep-manifest dep-features cmd)
             "-"
             (safe-store-token (path-content-hash dep-package-root))))
         (safe-store-token (name->string (package-name dep-manifest)))))
@@ -502,7 +508,7 @@
                   (loop (cdr items)))))))))
 
     (define (compiler-library-discovery-context manifest cmd source-roots)
-      (let ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+      (let ((scheme (command-adapter-scheme manifest cmd))
             (source-root-library-cache '()))
         (make-library-discovery-context
           (scheme-cond-expand-features scheme)
@@ -617,7 +623,7 @@
     (define (compiled-artifact-names manifest cmd)
       (compiled-artifact-names-for-scheme
         manifest
-        (adapter-scheme manifest (command-selected-scheme cmd))))
+        (command-adapter-scheme manifest cmd)))
 
     (define (source-root-package-manifest source-root)
       (let ((package-root (find-package-root-for-source-root source-root)))
@@ -633,7 +639,7 @@
         (activation-source-roots-with-dependency-builds manifest #f features cmd)))
 
     (define (compilable-source-root-records manifest features cmd . maybe-srcs)
-      (let* ((scheme (adapter-scheme manifest (command-selected-scheme cmd)))
+      (let* ((scheme (command-adapter-scheme manifest cmd))
              (source-roots (apply compiler-source-roots manifest features cmd maybe-srcs))
              (context (compiler-library-discovery-context manifest cmd source-roots))
              (roots source-roots))
@@ -672,7 +678,7 @@
 
     (define (compiled-artifact-records manifest features cmd)
       (let ((compiled-root (compiled-output-dir manifest features cmd))
-            (mode-id (adapter-scheme manifest (command-selected-scheme cmd))))
+            (mode-id (command-adapter-scheme manifest cmd)))
         (let loop-records ((records (compilable-source-root-records manifest features cmd)) (out '()))
           (if (null? records)
             (reverse out)

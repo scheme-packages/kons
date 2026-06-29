@@ -19,7 +19,7 @@
       (let ((fields (cdr form)))
         (ensure-known-fields
           fields
-          '(name version source registry optional schemes implementations dialects targets profiles compile-modes)
+          '(name version source registry optional schemes implementations dialects targets profiles compile-modes condition)
           context)
         (let ((name (field-ref fields 'name #f))
               (version (field-ref fields 'version "*"))

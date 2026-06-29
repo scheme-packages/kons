@@ -64,12 +64,6 @@
       (run-command (string-append "mkdir -p " (shell-quote (akku-config-root))))
       (write-expr-file (akku-sources-path) (cons 'akku-sources sources)))
 
-    (define (string-prefix? prefix text)
-      (let ((plen (string-length prefix))
-            (tlen (string-length text)))
-        (and (>= tlen plen)
-          (string=? prefix (substring text 0 plen)))))
-
     (define (absolute-http-url? text)
       (or (string-prefix? "http://" text)
         (string-prefix? "https://" text)))

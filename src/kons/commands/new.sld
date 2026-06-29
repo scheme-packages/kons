@@ -22,13 +22,6 @@
             "Package, dependency, or install name."
             'value-help:
             "NAME")
-          (list 'option "dialect"
-            'help:
-            "Starter package dialect."
-            'value-help:
-            "NAME"
-            'allowed:
-            '("r7rs" "r6rs"))
           (list 'flag "plan"
             'help:
             "Print the planned action without executing.")

@@ -39,6 +39,7 @@
     path-content-hash
     safe-store-token
     ascii-alphanumeric?
+    string-index
     semver-version?
     semver-requirement?
     read-all-exprs
@@ -54,9 +55,15 @@
     filter
     append-map
     string-split
+    split-whitespace
+    string-join
+    trim-leading-space
+    trim-trailing-space
+    trim-space
     string-contains?
     non-empty-string?
     dedupe-symbols
+    dedupe-equal
     ensure-known-fields)
   (import (except (scheme base) read-line)
     (scheme cxr)
@@ -527,7 +534,7 @@
         (and (>= slen plen)
           (string=? prefix (substring s 0 plen)))))
 
-    (define (string-index-char s target)
+    (define (string-index s target)
       (let ((len (string-length s)))
         (let loop ((i 0))
           (cond
@@ -571,10 +578,10 @@
 
     (define (semver-version? value)
       (and (string? value)
-        (let* ((plus (string-index-char value #\+))
+        (let* ((plus (string-index value #\+))
                (without-build (if plus (substring value 0 plus) value))
                (build (if plus (substring value (+ plus 1) (string-length value)) ""))
-               (dash (string-index-char without-build #\-))
+               (dash (string-index without-build #\-))
                (core (if dash (substring without-build 0 dash) without-build))
                (pre (if dash (substring without-build (+ dash 1) (string-length without-build)) "")))
           (and (semver-core? core)
@@ -637,11 +644,11 @@
             (start (loop (+ i 1) start out))
             (else (loop (+ i 1) i out))))))
 
-    (define (join-strings items sep)
+    (define (string-join items sep)
       (cond
         ((null? items) "")
         ((null? (cdr items)) (car items))
-        (else (string-append (car items) sep (join-strings (cdr items) sep)))))
+        (else (string-append (car items) sep (string-join (cdr items) sep)))))
 
     (define (semver-single-requirement? req)
       (and (not (string=? req ""))
@@ -677,11 +684,11 @@
               (and saw-or?
                 (pair? clause)
                 (semver-compound-requirement?
-                  (join-strings (reverse clause) " "))))
+                  (string-join (reverse clause) " "))))
             ((string=? (car items) "||")
               (and (pair? clause)
                 (semver-compound-requirement?
-                  (join-strings (reverse clause) " "))
+                  (string-join (reverse clause) " "))
                 (loop (cdr items) '() #t)))
             (else (loop (cdr items) (cons (car items) clause) saw-or?))))))
 
@@ -862,6 +869,20 @@
         (cond
           ((null? rest) (reverse out))
           ((memq (car rest) out) (loop (cdr rest) out))
+          (else (loop (cdr rest) (cons (car rest) out))))))
+
+    (define (equal-member? value xs)
+      (let loop ((rest xs))
+        (cond
+          ((null? rest) #f)
+          ((equal? value (car rest)) #t)
+          (else (loop (cdr rest))))))
+
+    (define (dedupe-equal xs)
+      (let loop ((rest xs) (out '()))
+        (cond
+          ((null? rest) (reverse out))
+          ((equal-member? (car rest) out) (loop (cdr rest) out))
           (else (loop (cdr rest) (cons (car rest) out))))))
 
     (define (string-contains? haystack needle)
