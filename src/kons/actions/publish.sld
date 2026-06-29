@@ -87,6 +87,7 @@
 
     (define (registry-dependency-sexp dep kind)
       `(dependency
+        (type registry)
         (name ,(name->string (alist-ref dep 'name '())))
         (req ,(alist-ref dep 'version "*"))
         (kind ,(string->symbol kind))
@@ -100,18 +101,54 @@
         (compile-modes ,@(alist-ref dep 'compile-modes '()))
         (condition ,(alist-ref dep 'condition #f))))
 
-    (define (registry-dependencies-list-sexp deps kind)
-      (map (lambda (dep) (registry-dependency-sexp dep kind)) deps))
+    (define (akku-dependency-sexp dep kind)
+      `(dependency
+        (type akku)
+        (name ,(alist-ref dep 'name '()))
+        (req ,(alist-ref dep 'version "*"))
+        (kind ,(string->symbol kind))
+        (source ,(alist-ref dep 'source "akku"))
+        (optional ,(and (alist-ref dep 'optional #f) #t))
+        (schemes ,@(alist-ref dep 'schemes '()))
+        (dialects ,@(alist-ref dep 'dialects '()))
+        (targets ,@(alist-ref dep 'targets '()))
+        (profiles ,@(alist-ref dep 'profiles '()))
+        (compile-modes ,@(alist-ref dep 'compile-modes '()))
+        (condition ,(alist-ref dep 'condition #f))))
 
-    (define (feature-registry-dependencies feature)
-      (filter publish-registry-dependency?
+    (define (snow-dependency-sexp dep kind)
+      `(dependency
+        (type snow)
+        (name ,(alist-ref dep 'name '()))
+        (req ,(alist-ref dep 'version "*"))
+        (kind ,(string->symbol kind))
+        (source ,(alist-ref dep 'source "snow"))
+        (optional ,(and (alist-ref dep 'optional #f) #t))
+        (schemes ,@(alist-ref dep 'schemes '()))
+        (dialects ,@(alist-ref dep 'dialects '()))
+        (targets ,@(alist-ref dep 'targets '()))
+        (profiles ,@(alist-ref dep 'profiles '()))
+        (compile-modes ,@(alist-ref dep 'compile-modes '()))
+        (condition ,(alist-ref dep 'condition #f))))
+
+    (define (publish-dependency-sexp dep kind)
+      (case (alist-ref dep 'type #f)
+        ((akku) (akku-dependency-sexp dep kind))
+        ((snow) (snow-dependency-sexp dep kind))
+        (else (registry-dependency-sexp dep kind))))
+
+    (define (publish-dependencies-list-sexp deps kind)
+      (map (lambda (dep) (publish-dependency-sexp dep kind)) deps))
+
+    (define (feature-publish-dependencies feature)
+      (filter publish-dependency?
         (parse-feature-dependencies feature)))
 
     (define (feature-dependency-sexp feature)
-      (let ((deps (feature-registry-dependencies feature)))
+      (let ((deps (feature-publish-dependencies feature)))
         `(feature-dependency
           (feature ,(car feature))
-          (dependencies ,@(registry-dependencies-list-sexp deps "normal")))))
+          (dependencies ,@(publish-dependencies-list-sexp deps "normal")))))
 
     (define (feature-dependencies-sexp manifest)
       (map feature-dependency-sexp (package-features manifest)))
@@ -127,6 +164,8 @@
     (define (publishable-dependency? dep)
       (let ((type (alist-ref dep 'type #f)))
         (or (eq? type 'registry)
+          (eq? type 'akku)
+          (eq? type 'snow)
           (eq? type 'system)
           (local-versioned-dependency? dep))))
 
@@ -145,14 +184,19 @@
       (or (eq? (alist-ref dep 'type #f) 'registry)
         (local-versioned-dependency? dep)))
 
-    (define (registry-dependencies-sexp manifest)
-      (let ((runtime (filter publish-registry-dependency?
+    (define (publish-dependency? dep)
+      (or (publish-registry-dependency? dep)
+        (eq? (alist-ref dep 'type #f) 'akku)
+        (eq? (alist-ref dep 'type #f) 'snow)))
+
+    (define (publish-dependencies-sexp manifest)
+      (let ((runtime (filter publish-dependency?
                       (alist-ref manifest 'dependencies '())))
-            (dev (filter publish-registry-dependency?
+            (dev (filter publish-dependency?
                   (alist-ref manifest 'dev-dependencies '()))))
         (append
-          (registry-dependencies-list-sexp runtime "normal")
-          (registry-dependencies-list-sexp dev "dev"))))
+          (publish-dependencies-list-sexp runtime "normal")
+          (publish-dependencies-list-sexp dev "dev"))))
 
     (define (feature-names manifest)
       (map (lambda (feature) (symbol->string (car feature)))
@@ -240,7 +284,7 @@
               (dialects ,@(package-dialects manifest))
               (features ,@(feature-names manifest))
               (feature-dependencies ,@(feature-dependencies-sexp manifest))
-              (dependencies ,@(registry-dependencies-sexp manifest))
+              (dependencies ,@(publish-dependencies-sexp manifest))
               (libraries ,@(publish-libraries-sexp manifest include-metadata?))
               (archive-base64 ,archive-b64))
             out)

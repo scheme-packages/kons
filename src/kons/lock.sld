@@ -155,6 +155,15 @@
     (define (snow-dependency? dep)
       (eq? (alist-ref dep 'type #f) 'snow))
 
+    (define (dependency-type dep)
+      (alist-ref dep 'type 'registry))
+
+    (define (published-registry-dependency? dep)
+      (eq? (dependency-type dep) 'registry))
+
+    (define (published-external-dependency? dep)
+      (memq (dependency-type dep) '(akku snow)))
+
     (define (selected-registry-dependency? dep)
       (and (registry-dependency? dep)
         (not (alist-ref dep 'optional #f))))
@@ -211,6 +220,43 @@
                    (alist-ref feature-dep 'dependencies '()))))
         (replace-candidate-field feature-dep 'dependencies deps)))
 
+    (define (feature-dependency-with-selected-dependencies feature-dep predicate)
+      (replace-candidate-field
+        feature-dep
+        'dependencies
+        (filter predicate (alist-ref feature-dep 'dependencies '()))))
+
+    (define (feature-key feature)
+      (cond
+        ((symbol? feature) (symbol->string feature))
+        ((string? feature) feature)
+        (else "")))
+
+    (define (feature-list-contains? features feature)
+      (let ((key (feature-key feature)))
+        (let loop ((items features))
+          (cond
+            ((null? items) #f)
+            ((string=? key (feature-key (car items))) #t)
+            (else (loop (cdr items)))))))
+
+    (define (feature-dependency-active? item features)
+      (let ((feature (alist-ref item 'feature #f)))
+        (and feature (feature-list-contains? features feature))))
+
+    (define (candidate-active-external-feature-dependencies candidate features)
+      (append-map
+        (lambda (item) (alist-ref item 'dependencies '()))
+        (filter (lambda (item) (feature-dependency-active? item features))
+          (alist-ref candidate 'external-feature-dependencies '()))))
+
+    (define (candidate-external-dependencies candidate)
+      (append
+        (alist-ref candidate 'external-dependencies '())
+        (candidate-active-external-feature-dependencies
+          candidate
+          (alist-ref candidate 'resolved-features '()))))
+
     (define (candidate-with-applicable-dependencies candidate manifest cmd)
       (let ((deps (filter (lambda (dep) (dependency-applies? dep manifest cmd))
                    (alist-ref candidate 'dependencies '())))
@@ -222,9 +268,26 @@
                       cmd))
                 (alist-ref candidate 'feature-dependencies '()))))
         (replace-candidate-field
-          (replace-candidate-field candidate 'dependencies deps)
-          'feature-dependencies
-          feature-deps)))
+          (replace-candidate-field
+            (replace-candidate-field
+              (replace-candidate-field
+                candidate
+                'dependencies
+                (filter published-registry-dependency? deps))
+              'feature-dependencies
+              (map (lambda (feature-dep)
+                    (feature-dependency-with-selected-dependencies
+                      feature-dep
+                      published-registry-dependency?))
+                feature-deps))
+            'external-dependencies
+            (filter published-external-dependency? deps))
+          'external-feature-dependencies
+          (map (lambda (feature-dep)
+                (feature-dependency-with-selected-dependencies
+                  feature-dep
+                  published-external-dependency?))
+            feature-deps))))
 
     (define (candidate-feature-dependencies-for-universe candidate)
       (append-map
@@ -326,15 +389,18 @@
     (define (registry-resolution-lock-data deps offline? preferred-refs manifest cmd)
       (let ((requirements (map registry-requirement deps)))
         (if (null? requirements)
-          (cons '() '())
+          (cons (cons '() '()) '())
           (let* ((universe (collect-registry-universe requirements offline? manifest cmd))
                  (resolution (resolve-dependencies requirements universe preferred-refs))
+                 (packages (resolution-packages resolution))
                  (edges (resolution-edges resolution)))
             (cons
-              (map (lambda (candidate)
-                    (registry-candidate-lock-entry candidate edges))
-                (resolution-packages resolution))
-              (map lock-edge-entry edges))))))
+              (cons
+                (map (lambda (candidate)
+                      (registry-candidate-lock-entry candidate edges))
+                  packages)
+                (map lock-edge-entry edges))
+              (append-map candidate-external-dependencies packages))))))
 
     (define (workspace-root-manifest-path cmd)
       (command-option cmd "workspace-root" #f))
@@ -401,20 +467,25 @@
                              preferred-refs
                              manifest
                              cmd))
+             (registry-entries (car (car registry-data)))
+             (registry-edges (cdr (car registry-data)))
+             (registry-external-deps (cdr registry-data))
              (akku-data (akku-resolution-lock-data
-                         (filter selected-akku-dependency? deps)
+                         (append
+                           (filter selected-akku-dependency? deps)
+                           (filter akku-dependency? registry-external-deps))
                          offline?
                          preferred-akku-refs
                          manifest
                          cmd))
              (snow-data (snow-resolution-lock-data
-                         (filter selected-snow-dependency? deps)
+                         (append
+                           (filter selected-snow-dependency? deps)
+                           (filter snow-dependency? registry-external-deps))
                          offline?
                          preferred-snow-refs
                          manifest
                          cmd))
-             (registry-entries (car registry-data))
-             (registry-edges (cdr registry-data))
              (akku-entries (car akku-data))
              (akku-edges (cdr akku-data))
              (snow-entries (car snow-data))

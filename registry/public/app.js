@@ -685,6 +685,28 @@ function ownersHtml(owners) {
   `).join("")}</div>`;
 }
 
+function dependencyDisplayName(name) {
+  if (Array.isArray(name)) return `(${name.map((part) => String(part || "")).filter(Boolean).join(" ")})`;
+  return String(name || "");
+}
+
+function dependencySourceType(dep) {
+  return String(dep?.type || dep?.sourceType || "registry").toLowerCase();
+}
+
+function dependencySourceMeta(dep) {
+  const type = dependencySourceType(dep);
+  if (type === "akku") {
+    const source = dep.source || dep.registry || "akku";
+    return source === "akku" ? "Akku" : `Akku · ${source}`;
+  }
+  if (type === "snow") {
+    const source = dep.source || dep.registry || "snow";
+    return source === "snow" ? "Snow Fort" : `Snow · ${source}`;
+  }
+  return dep.registry ? `registry · ${dep.registry}` : "";
+}
+
 function versionHtml(pkg, version) {
   const download = `/api/v1/packages/${encodeURIComponentName(pkg.name)}/${encodeURIComponent(version.version)}/download`;
   const statusChip = version.yanked ? chip("yanked", "danger") : chip("active", "success");
@@ -725,10 +747,21 @@ function versionHtml(pkg, version) {
 }
 
 function dependencyHtml(dep) {
+  const type = dependencySourceType(dep);
+  const displayName = dependencyDisplayName(dep.name);
+  const sourceMeta = dependencySourceMeta(dep);
+  const kind = dep.kind && dep.kind !== "normal" ? ` · ${escapeHtml(dep.kind)}` : "";
+  const requirement = `${escapeHtml(dep.req || "*")}${kind}`;
+  const nameHtml = type === "registry"
+    ? `<a href="#/pkg/${encodeURIComponent(displayName)}" data-dependency="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
+    : `<span class="dependency-name">${escapeHtml(displayName)}</span>`;
   return `
-    <div class="dependency-row">
-      <a href="#/pkg/${encodeURIComponent(dep.name)}" data-dependency="${escapeAttr(dep.name)}">${escapeHtml(dep.name)}</a>
-      <span class="dependency-req">${escapeHtml(dep.req || "*")}${dep.kind && dep.kind !== "normal" ? ` · ${escapeHtml(dep.kind)}` : ""}</span>
+    <div class="dependency-row${type !== "registry" ? " dependency-row-external" : ""}">
+      <span class="dependency-main">
+        ${nameHtml}
+        ${sourceMeta ? chip(sourceMeta, type === "akku" || type === "snow" ? "accent" : "muted") : ""}
+      </span>
+      <span class="dependency-req">${requirement}</span>
     </div>
   `;
 }

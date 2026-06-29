@@ -95,10 +95,13 @@ CREATE TABLE IF NOT EXISTS versions (
 CREATE TABLE IF NOT EXISTS dependencies (
   package_name TEXT NOT NULL,
   version TEXT NOT NULL,
+  dep_type TEXT NOT NULL DEFAULT 'registry',
   dep_name TEXT NOT NULL,
+  dep_name_json TEXT NOT NULL DEFAULT '',
   req TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'normal',
   registry TEXT,
+  source TEXT,
   optional INTEGER NOT NULL DEFAULT 0,
   target TEXT,
   schemes_json TEXT NOT NULL DEFAULT '[]',
@@ -185,6 +188,9 @@ CREATE TABLE IF NOT EXISTS auth_states (
   ensureColumn(db, "versions", "feature_dependencies_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "versions", "download_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "versions", "last_downloaded_at", "TEXT");
+  ensureColumn(db, "dependencies", "dep_type", "TEXT NOT NULL DEFAULT 'registry'");
+  ensureColumn(db, "dependencies", "dep_name_json", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "dependencies", "source", "TEXT");
   ensureColumn(db, "dependencies", "schemes_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "dependencies", "implementations_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "dependencies", "dialects_json", "TEXT NOT NULL DEFAULT '[]'");

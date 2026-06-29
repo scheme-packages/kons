@@ -347,7 +347,7 @@ function packageDependents(name, includeYanked = false) {
            d.target, d.schemes_json, d.implementations_json, d.targets_json, d.features_json, v.description, v.yanked
     FROM dependencies d
     JOIN versions v ON v.package_name = d.package_name AND v.version = d.version
-    WHERE d.dep_name = ? AND (? = 1 OR v.yanked = 0)
+    WHERE d.dep_name = ? AND COALESCE(d.dep_type, 'registry') = 'registry' AND (? = 1 OR v.yanked = 0)
     ORDER BY d.package_name, d.version DESC
   `).all(name, includeYanked ? 1 : 0).map((row) => ({
     package: row.package_name,

@@ -510,6 +510,25 @@
   font-weight: 500;
 }
 
+.dependency-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.dependency-name {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.dependency-row-external:hover {
+  background: transparent;
+}
+
 .dependency-req {
   font-family: var(--font-mono);
   font-size: 0.82rem;

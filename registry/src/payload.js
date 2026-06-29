@@ -98,6 +98,50 @@ function normalizeKeywords(value, errors) {
   return out;
 }
 
+function normalizeDependencyType(dep, prefix, errors) {
+  const raw = dep.type ?? dep.sourceType ?? dep.source_type ?? "registry";
+  const type = String(raw || "registry").trim().toLowerCase();
+  if (!["registry", "akku", "snow"].includes(type)) {
+    errors.push({ field: `${prefix}.type`, message: "must be registry, akku, or snow" });
+    return "registry";
+  }
+  return type;
+}
+
+function normalizeExternalNamePart(value, field, errors) {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) errors.push({ field, message: "must not be empty" });
+    return text;
+  }
+  if (typeof value === "number" && Number.isInteger(value)) return String(value);
+  errors.push({ field, message: "must be a string or integer" });
+  return "";
+}
+
+function normalizeExternalDependencyName(value, type, field, errors) {
+  if (typeof value === "string") {
+    if (type === "snow") {
+      errors.push({ field, message: "must be an array for Snow dependencies" });
+      return "";
+    }
+    const text = value.trim();
+    if (!text) errors.push({ field, message: "is required" });
+    return text;
+  }
+  if (!Array.isArray(value)) {
+    errors.push({ field, message: `must be a ${type === "snow" ? "array" : "string or array"} for ${type === "snow" ? "Snow" : "Akku"} dependencies` });
+    return "";
+  }
+  if (!value.length) {
+    errors.push({ field, message: "must not be empty" });
+    return [];
+  }
+  return value
+    .map((part, index) => normalizeExternalNamePart(part, `${field}[${index}]`, errors))
+    .filter(Boolean);
+}
+
 function normalizeDependencies(raw, errors) {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
@@ -111,11 +155,17 @@ function normalizeDependencies(raw, errors) {
       return null;
     }
 
-    let name = "";
-    try {
-      name = validatePackageName(dep.name);
-    } catch (error) {
-      errors.push({ field: `${prefix}.name`, message: error.message });
+    const type = normalizeDependencyType(dep, prefix, errors);
+    let name;
+    if (type === "akku" || type === "snow") {
+      name = normalizeExternalDependencyName(dep.name, type, `${prefix}.name`, errors);
+    } else {
+      name = "";
+      try {
+        name = validatePackageName(dep.name);
+      } catch (error) {
+        errors.push({ field: `${prefix}.name`, message: error.message });
+      }
     }
 
     const reqValue = dep.req ?? dep.version;
@@ -133,10 +183,15 @@ function normalizeDependencies(raw, errors) {
     if (dep.optional !== undefined && typeof dep.optional !== "boolean") {
       errors.push({ field: `${prefix}.optional`, message: "must be a boolean" });
     }
-    if (dep.registry !== undefined && (typeof dep.registry !== "string" || !dep.registry.trim())) {
+    const registryValue = type === "registry" ? dep.registry : undefined;
+    const sourceValue = type === "registry" ? undefined : (dep.source ?? dep.registry);
+    if (registryValue != null && (typeof registryValue !== "string" || !registryValue.trim())) {
       errors.push({ field: `${prefix}.registry`, message: "must be a non-empty string" });
     }
-    if (dep.target !== undefined && (typeof dep.target !== "string" || !dep.target.trim())) {
+    if (sourceValue != null && (typeof sourceValue !== "string" || !sourceValue.trim())) {
+      errors.push({ field: `${prefix}.source`, message: "must be a non-empty string" });
+    }
+    if (dep.target != null && (typeof dep.target !== "string" || !dep.target.trim())) {
       errors.push({ field: `${prefix}.target`, message: "must be a non-empty string" });
     }
 
@@ -151,10 +206,12 @@ function normalizeDependencies(raw, errors) {
     const target = dep.target ? String(dep.target).trim() : null;
     const allTargets = target ? [target, ...targets.filter((item) => item !== target)] : targets;
     return {
+      type,
       name,
       req,
       kind: ["normal", "dev", "build"].includes(kind) ? kind : "normal",
-      registry: dep.registry ? String(dep.registry).trim() : null,
+      registry: registryValue ? String(registryValue).trim() : null,
+      source: sourceValue ? String(sourceValue).trim() : null,
       optional: Boolean(dep.optional),
       target: target || allTargets[0] || null,
       schemes,
@@ -166,7 +223,7 @@ function normalizeDependencies(raw, errors) {
       condition,
       features,
     };
-  }).filter((dep) => dep && dep.name && dep.req);
+  }).filter((dep) => dep && dep.req && (!Array.isArray(dep.name) || dep.name.length) && dep.name);
 }
 
 function normalizeFeatureDependencies(raw, errors) {

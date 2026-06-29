@@ -190,7 +190,7 @@ function validSemverIdentifiers(value, { allowLeadingZeroNumbers }) {
   if (!value) return true;
   return value.split(".").every((part) => {
     if (!part || !/^[0-9A-Za-z-]+$/.test(part)) return false;
-    return allowLeadingZeroNumbers || !/^\d{2,}$/.test(part);
+    return allowLeadingZeroNumbers || !/^0\d+$/.test(part);
   });
 }
 
@@ -356,18 +356,31 @@ function incrementDownloadCount(name, version) {
   `).run(nowIso(), name, version);
 }
 
+function dependencyNameValue(row) {
+  if (!row.dep_name_json) return row.dep_name;
+  const parsed = dataValue(row.dep_name_json);
+  return parsed === undefined || parsed === null || parsed === false ? row.dep_name : parsed;
+}
+
+function dependencyNameSearchText(name) {
+  if (Array.isArray(name)) return name.join("/");
+  return String(name || "");
+}
+
 function dependencyRows(name, version) {
   return db.prepare(`
-    SELECT dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json
+    SELECT dep_type, dep_name, dep_name_json, req, kind, registry, source, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json
     FROM dependencies WHERE package_name = ? AND version = ?
     ORDER BY dep_name
   `).all(name, version).map((row) => {
     const condition = dataValue(row.condition_json || "#f");
     return {
-      name: row.dep_name,
+      type: row.dep_type || "registry",
+      name: dependencyNameValue(row),
       req: row.req,
       kind: row.kind,
       registry: row.registry || null,
+      source: row.source || null,
       optional: Boolean(row.optional),
       target: row.target || null,
       schemes: dataArray(row.schemes_json),
@@ -449,7 +462,9 @@ function collectSearchTerms({ name, description, keywords, dialects, features, d
   for (const dialect of dialects || []) addSearchTerm(out, seen, "dialect", dialect);
   for (const feature of features || []) addSearchTerm(out, seen, "feature", feature);
   for (const dependency of dependencies || []) {
-    addSearchTerm(out, seen, "dependency", dependency.name);
+    addSearchTerm(out, seen, "dependency", dependencyNameSearchText(dependency.name));
+    addSearchTerm(out, seen, "dependency-source", dependency.type);
+    addSearchTerm(out, seen, "dependency-source", dependency.source);
   }
   for (const library of libraries || []) {
     addSearchTerm(out, seen, "library", library.name);

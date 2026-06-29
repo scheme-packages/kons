@@ -140,11 +140,19 @@ such as `api`, `auth`, `index`, `search`, and `tokens` are reserved.
   "keywords": ["scheme", "example"],
   "dialects": ["r7rs"],
   "dependencies": [
-    { "name": "example/base", "req": "^1.0", "kind": "normal" }
+    { "type": "registry", "name": "example/base", "req": "^1.0", "kind": "normal" },
+    { "type": "akku", "name": ["chibi", "match"], "req": "0.7.0", "source": "akku" },
+    { "type": "snow", "name": ["retropikzel", "system"], "req": "^1.0", "source": "snow" }
   ],
   "archiveBase64": "..."
 }
 ```
+
+Dependency `type` defaults to `registry`. Use `type: "akku"` to publish
+metadata for a dependency resolved from an Akku archive source; flat Akku names
+are strings, and list-shaped Akku names are arrays. Use `type: "snow"` for
+Snow Fort dependency metadata; Snow names are arrays and `source` defaults to
+the Snow repository alias or URL.
 
 ## Signed Metadata
 

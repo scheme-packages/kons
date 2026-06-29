@@ -61,10 +61,12 @@ function sparseIndexEntry(name, row) {
     name,
     vers: row.version,
     deps: dependencyRows(name, row.version).map((dep) => ({
+      type: dep.type || "registry",
       name: dep.name,
       req: dep.req,
       kind: dep.kind,
       registry: dep.registry,
+      source: dep.source,
       optional: dep.optional,
       target: dep.target,
       schemes: dep.schemes || [],
@@ -122,12 +124,18 @@ function conditionToSexp(value) {
   return value;
 }
 
+function dependencyNameToSexp(name) {
+  return Array.isArray(name) ? symbolStrings(name).map(sym) : name;
+}
+
 function depSexp(dep) {
   return sexpFields("dependency", {
-    name: dep.name,
+    type: sym(dep.type || "registry"),
+    name: dependencyNameToSexp(dep.name),
     req: dep.req,
     kind: sym(dep.kind || "normal"),
     registry: dep.registry || false,
+    source: dep.source || false,
     optional: Boolean(dep.optional),
     target: dep.target || false,
     schemes: symbolStrings(dep.schemes || []).map(sym),
@@ -208,13 +216,20 @@ function fieldMap(form, expected) {
   return fieldList(form);
 }
 
+function parseDependencyName(value) {
+  if (Array.isArray(value)) return symbolStrings(value);
+  return scalarString(value);
+}
+
 function parseDependencyForm(form) {
   const fields = fieldMap(form, "dependency");
   return {
-    name: scalarString(fieldValue(fields, "name")),
+    type: symbolName(fieldValue(fields, "type", sym("registry"))) || "registry",
+    name: parseDependencyName(fieldValue(fields, "name")),
     req: scalarString(fieldValue(fields, "req", fieldValue(fields, "version", "*")), "*"),
     kind: symbolName(fieldValue(fields, "kind", sym("normal"))) || "normal",
     registry: scalarString(fieldValue(fields, "registry", false), "") || null,
+    source: scalarString(fieldValue(fields, "source", false), "") || null,
     optional: Boolean(fieldValue(fields, "optional", false)),
     target: scalarString(fieldValue(fields, "target", false), "") || null,
     schemes: symbolStrings(fieldValues(fields, "schemes")),
@@ -396,15 +411,18 @@ async function publishPackage(req, res) {
     for (const dep of dependencies) {
       db.prepare(`
       INSERT INTO dependencies
-          (package_name, version, dep_name, req, kind, registry, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (package_name, version, dep_type, dep_name, dep_name_json, req, kind, registry, source, optional, target, schemes_json, implementations_json, dialects_json, targets_json, profiles_json, compile_modes_json, condition_json, features_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         name,
         version,
-        dep.name,
+        dep.type,
+        Array.isArray(dep.name) ? dep.name.join("/") : dep.name,
+        dataText(dep.name),
         dep.req,
         dep.kind,
         dep.registry,
+        dep.source,
         dep.optional ? 1 : 0,
         dep.target,
         dataText(dep.schemes),

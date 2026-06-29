@@ -83,6 +83,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
@@ -259,6 +260,7 @@ h4 {
   align-items: center;
   gap: 1rem;
   height: 100%;
+  min-width: 0;
 }
 
 .brand {
@@ -278,6 +280,13 @@ h4 {
 .navlinks {
   display: flex;
   gap: 0.55rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.navlinks::-webkit-scrollbar {
+  display: none;
 }
 
 .navlink {
@@ -305,6 +314,7 @@ h4 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: none;
 }
 
 /* Buttons */
