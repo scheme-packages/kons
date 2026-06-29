@@ -36,27 +36,27 @@ implementations installed to drive them.
 
 kons can run itself on:
 
- - Capy [![CI: Capy](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20capy)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Gauche [![CI: Gauche](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20gauche)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - GNU Guile [![CI: Guile](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20guile)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Chibi Scheme [![CI: Chibi](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20chibi)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Capy [![CI: Capy](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=integration%20%28capy%29&label=CI%3A%20capy)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Gauche [![CI: Gauche](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=integration%20%28gauche%29&label=CI%3A%20gauche)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - GNU Guile [![CI: Guile](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=integration%20%28guile%29&label=CI%3A%20guile)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Chibi Scheme [![CI: Chibi](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=integration%20%28chibi%29&label=CI%3A%20chibi)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
 
 kons can drive target packages on:
 
- - Capy [![CI: Capy R7RS/R6RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20capy%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Chez Scheme [![CI: Chez R6RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20chez)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Gauche [![CI: Gauche R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20gauche%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - GNU Guile [![CI: Guile R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20guile%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Chibi Scheme [![CI: Chibi R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20chibi%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Sagittarius [![CI: Sagittarius R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20sagittarius)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - STklos [![CI: STklos R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20stklos)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Kawa [![CI: Kawa R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20kawa)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Loko [![CI: Loko R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20loko)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Skint [![CI: Skint R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20skint)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - Cyclone [![CI: Cyclone R7RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20cyclone)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Capy [![CI: Capy R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28capy%29&label=CI%3A%20capy%20r7rs)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml) [![CI: Capy R6RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r6rs%20runtime%20%28capy%29&label=CI%3A%20capy%20r6rs)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Chez Scheme [![CI: Chez R6RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r6rs%20runtime%20%28chez%29&label=CI%3A%20chez)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Gauche [![CI: Gauche R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28gauche%29&label=CI%3A%20gauche%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - GNU Guile [![CI: Guile R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28guile%29&label=CI%3A%20guile%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Chibi Scheme [![CI: Chibi R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28chibi%29&label=CI%3A%20chibi%20runtime)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Sagittarius [![CI: Sagittarius R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28sagittarius%29&label=CI%3A%20sagittarius)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - STklos [![CI: STklos R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28stklos%29&label=CI%3A%20stklos)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Kawa [![CI: Kawa R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28kawa%29&label=CI%3A%20kawa)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Loko [![CI: Loko R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28loko%29&label=CI%3A%20loko)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Skint [![CI: Skint R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28skint%29&label=CI%3A%20skint)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Cyclone [![CI: Cyclone R7RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r7rs%20runtime%20%28cyclone%29&label=CI%3A%20cyclone)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
  - MIT/GNU Scheme
- - Mosh [![CI: Mosh R6RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20mosh)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
- - IronScheme [![CI: IronScheme R6RS](https://img.shields.io/github/actions/workflow/status/scheme-packages/kons/ci.yml?branch=master&label=CI%3A%20ironscheme)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - Mosh [![CI: Mosh R6RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r6rs%20runtime%20%28mosh%29&label=CI%3A%20mosh)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
+ - IronScheme [![CI: IronScheme R6RS](https://img.shields.io/github/check-runs/scheme-packages/kons/master?nameFilter=r6rs%20runtime%20%28ironscheme%29&label=CI%3A%20ironscheme)](https://github.com/scheme-packages/kons/actions/workflows/ci.yml)
 
 ## Installation
 
