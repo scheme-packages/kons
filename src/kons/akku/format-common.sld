@@ -70,9 +70,7 @@
               ((char=? first #\#)
                 (read-char in)
                 (let ((second (read-char in)))
-                  (if (and (eqv? second #\!)
-                        (let ((third (peek-char in)))
-                          (or (eqv? third #\/) (eqv? third #\space))))
+                  (if (eqv? second #\!)
                     (begin
                       (skip-line in)
                       (read-all-exprs-from-port in))
