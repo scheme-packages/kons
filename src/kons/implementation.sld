@@ -217,7 +217,7 @@
               (list (string-append "-Dkawa.import.path="
                      (path-list-env
                        (map (lambda (path)
-                             (append-suffix "/*.sld" path))
+                             (append-suffix "/*.sld" (absolute-path path)))
                          src))))))
           (else '()))))
 
