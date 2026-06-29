@@ -45,6 +45,7 @@ jobs:
         include:
           - scheme: capy
             image: debian:trixie-slim
+            install: capy
           - scheme: gauche
             image: schemers/gauche
           - scheme: guile
@@ -155,7 +156,7 @@ jobs:
             sh -lc '
               set -eu
               apt-get update >/dev/null
-              apt-get install -y --no-install-recommends ca-certificates curl make git >/dev/null
+              apt-get install -y --no-install-recommends ca-certificates curl make git gpgv xz-utils >/dev/null
               if [ "${{ matrix.install }}" = capy ]; then
                 mkdir -p /etc/apt/keyrings
                 curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc

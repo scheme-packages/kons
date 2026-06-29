@@ -15,6 +15,7 @@
          package-name
          package-version
          features
+         active-features
          feature-enabled?
          dialects
          dialect-enabled?
@@ -38,7 +39,7 @@
          metadata)
         (import (scheme base)
          (scheme cxr)
-         (scheme process-context)
+         (only (scheme process-context) command-line)
          (scheme write))
         (begin
          (define (arg-value name default)
@@ -65,9 +66,10 @@
          (define target (arg-value "--kons-target" ""))
          (define package-name (arg-value "--kons-package-name" ""))
          (define package-version (arg-value "--kons-package-version" ""))
-         (define features (map string->symbol (arg-values "--kons-feature")))
+         (define active-features (map string->symbol (arg-values "--kons-feature")))
+         (define features active-features)
          (define (feature-enabled? feature)
-          (and (memq feature features) #t))
+          (and (memq feature active-features) #t))
          (define dialects (map string->symbol (arg-values "--kons-dialect")))
          (define (dialect-enabled? dialect)
           (and (memq dialect dialects) #t))
@@ -159,7 +161,6 @@
          output
          metadata)
         (import (rnrs)
-         (rnrs lists)
          (rnrs programs))
         (define (arg-value name default)
          (let loop ((items (command-line)))

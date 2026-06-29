@@ -2,6 +2,7 @@
   (export read-akku-manifest
     read-akku-lock
     read-akku-index
+    read-akku-index-datums
     make-akku-package
     akku-package?
     akku-package-name
@@ -106,7 +107,10 @@
 
     (define (read-akku-index path)
       (map (lambda (form) (parse-index-package path form))
-        (read-akku-file path index-import)))
+        (read-akku-index-datums path)))
+
+    (define (read-akku-index-datums path)
+      (read-akku-file path index-import))
 
     (define (validate-location path location)
       (unless (and (list? location)

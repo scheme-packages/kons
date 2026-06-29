@@ -65,7 +65,7 @@
                   path
                   (error-object-message exn))))
         (read-akku-index path)
-        (read-all-exprs path)))
+        (read-akku-index-datums path)))
 
     (define (cached-index-metadata archive-url key-files root verifier)
       (let* ((index-path (index-cache-path root))
@@ -93,31 +93,39 @@
 
     (define (fetch-live-index! archive-url key-files root verifier)
       (let* ((tmp-index (temporary-file-path "kons-akku-index.scm"))
-             (tmp-signature (temporary-file-path "kons-akku-index.sig")))
-        (download-file! (archive-index-url archive-url)
-          tmp-index
-          "Akku archive index could not be fetched")
-        (let* ((sha1 (sha1-file tmp-index))
-               (signature-relative-path (akku-index-signature-relative-path sha1))
-               (signature-url (akku-index-signature-url archive-url sha1)))
-          (download-file! signature-url
-            tmp-signature
-            "Akku archive index signature could not be fetched")
-          (unless (verifier tmp-index tmp-signature key-files)
-            (dependency-error "Akku archive index verification failure: signature mismatch" archive-url))
-          (let* ((index-path (index-cache-path root))
-                 (signature-path (signature-cache-path root))
-                 (parsed-path (parsed-cache-path root))
-                 (receipt-path (receipt-cache-path root))
-                 (datums (validated-akku-index-datums tmp-index)))
-            (run-command (string-append "mkdir -p " (shell-quote root)))
-            (copy-file! tmp-index index-path)
-            (copy-file! tmp-signature signature-path)
-            (write-parsed-cache! parsed-path archive-url sha1 signature-relative-path datums)
-            (write-receipt! receipt-path archive-url sha1 signature-relative-path)
-            (remove-file-if-exists! tmp-index)
-            (remove-file-if-exists! tmp-signature)
-            (make-akku-index-metadata archive-url sha1 index-path signature-path parsed-path)))))
+             (tmp-signature (temporary-file-path "kons-akku-index.sig"))
+             (metadata
+               (dynamic-wind
+                 (lambda () #f)
+                 (lambda ()
+                   (download-file! (archive-index-url archive-url)
+                     tmp-index
+                     "Akku archive index could not be fetched")
+                   (let* ((sha1 (sha1-file tmp-index))
+                          (signature-relative-path (akku-index-signature-relative-path sha1))
+                          (signature-url (akku-index-signature-url archive-url sha1)))
+                     (download-file! signature-url
+                       tmp-signature
+                       "Akku archive index signature could not be fetched")
+                     (if (verifier tmp-index tmp-signature key-files)
+                       (let* ((index-path (index-cache-path root))
+                              (signature-path (signature-cache-path root))
+                              (parsed-path (parsed-cache-path root))
+                              (receipt-path (receipt-cache-path root))
+                              (datums (validated-akku-index-datums tmp-index)))
+                         (run-command (string-append "mkdir -p " (shell-quote root)))
+                         (copy-file! tmp-index index-path)
+                         (copy-file! tmp-signature signature-path)
+                         (write-parsed-cache! parsed-path archive-url sha1 signature-relative-path datums)
+                         (write-receipt! receipt-path archive-url sha1 signature-relative-path)
+                         (make-akku-index-metadata archive-url sha1 index-path signature-path parsed-path))
+                       #f)))
+                 (lambda ()
+                   (remove-file-if-exists! tmp-index)
+                   (remove-file-if-exists! tmp-signature)))))
+        (if metadata
+          metadata
+          (dependency-error "Akku archive index verification failure: signature mismatch" archive-url))))
 
     (define (akku-fetch-index! archive-url key-files offline? . maybe-verifier)
       (let* ((root (akku-archive-metadata-root archive-url))

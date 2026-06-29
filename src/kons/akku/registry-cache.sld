@@ -174,6 +174,8 @@
             (unless (file-exists? key)
               (dependency-error "trusted Akku OpenPGP keyring is missing" key)))
           keys)
+        (unless (= (shell-command-status "command -v gpgv >/dev/null 2>&1") 0)
+          (dependency-error "gpgv is required to verify Akku archive signatures"))
         (= (shell-command-status
             (string-append
               "gpgv --quiet"

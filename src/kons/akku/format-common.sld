@@ -50,13 +50,34 @@
     (define (akku-format-error path message . details)
       (apply error (string-append "Akku format parse error: " message) path details))
 
+    (define (read-all-exprs-from-port in)
+      (let loop ((expr (read in)) (out '()))
+        (if (eof-object? expr)
+          (reverse out)
+          (loop (read in) (cons expr out)))))
+
+    (define (skip-line in)
+      (let loop ((ch (read-char in)))
+        (unless (or (eof-object? ch) (char=? ch #\newline))
+          (loop (read-char in)))))
+
     (define (read-all-exprs path)
       (call-with-input-file path
         (lambda (in)
-          (let loop ((expr (read in)) (out '()))
-            (if (eof-object? expr)
-              (reverse out)
-              (loop (read in) (cons expr out)))))))
+          (let ((first (peek-char in)))
+            (cond
+              ((eof-object? first) '())
+              ((char=? first #\#)
+                (read-char in)
+                (let ((second (read-char in)))
+                  (if (and (eqv? second #\!)
+                        (let ((third (peek-char in)))
+                          (or (eqv? third #\/) (eqv? third #\space))))
+                    (begin
+                      (skip-line in)
+                      (read-all-exprs-from-port in))
+                    (call-with-input-file path read-all-exprs-from-port))))
+              (else (read-all-exprs-from-port in)))))))
 
     (define (read-akku-file path expected-import)
       (let ((exprs (read-all-exprs path)))
@@ -67,16 +88,13 @@
             (akku-format-error path "wrong import header" (car exprs)))
           (else (cdr exprs)))))
 
-    (define (symbol-or-number? value)
-      (or (symbol? value) (number? value)))
-
     (define (valid-package-name? value)
       (or (string? value)
         (and (list? value)
           (not (null? value))
           (let loop ((items value))
             (or (null? items)
-              (and (symbol-or-number? (car items))
+              (and (or (symbol? (car items)) (number? (car items)))
                 (loop (cdr items))))))))
 
     (define (valid-dependency-name? value)

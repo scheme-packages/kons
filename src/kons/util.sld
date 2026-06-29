@@ -73,11 +73,16 @@
     (scheme time)
     (scheme write)
     (scheme process-context)
-    (conduit)
     (kons compat json)
     (kons compat files)
     (kons compat threads)
     (kons ui))
+  (cond-expand
+    (chibi
+      (import (rename (chibi process)
+                (system chibi-system))))
+    (else
+      (import (only (conduit) shell-command))))
 
   (begin
     (define kons-version 2)
@@ -460,7 +465,7 @@
       (let* ((tmp (next-temporary-path "kons-status"))
              (wrapper (string-append "( " cmd " ); printf '%s\\n' $? > " (shell-quote tmp))))
         (cond-expand
-          (chibi (process-output+error+status (list "sh" "-c" wrapper)))
+          (chibi (chibi-system (list "sh" "-c" wrapper)))
           (else (shell-command wrapper)))
         (let ((status (string->number (call-with-input-file tmp read-line))))
           (delete-file-if-exists tmp)
@@ -490,7 +495,7 @@
 
     (define (capture-first-line cmd)
       (let* ((tmp (next-temporary-path "kons-capture"))
-             (status (shell-command-status (string-append cmd " > " (shell-quote tmp)))))
+             (status (shell-command-status (string-append cmd " > " (shell-quote tmp) " 2>&1"))))
         (unless (= status 0)
           (die "command failed" cmd status))
         (let ((line (call-with-input-file tmp read-line)))

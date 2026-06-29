@@ -226,10 +226,7 @@
 
     (define (discovered-akku-source-roots root)
       (let ((common (existing-common-akku-source-roots root)))
-        (cond
-          ((not (null? common)) common)
-          ((directory-has-scheme-library? root) (list root))
-          (else (list root)))))
+        (if (null? common) (list root) common)))
 
     (define (locked-akku-entry-source-roots entry root)
       (let ((load-paths (locked-akku-load-path-roots entry root)))
@@ -658,7 +655,6 @@
           (let* ((status (runner-job-event-field event 'status #f))
                  (label (runner-job-event-field event 'label #f))
                  (metadata (runner-job-event-field event 'metadata '()))
-                 (done-label (alist-ref metadata 'done-label label))
                  (entry-name (and label (let ((parts (string-split label #\space)))
                                          (if (> (length parts) 1)
                                            (string-join (cdr parts) " ")
@@ -695,18 +691,6 @@
             ((null? items) (string-join (reverse shown) ", "))
             ((>= count 4) (string-join (reverse (cons "..." shown)) ", "))
             (else (loop (cdr items) (+ count 1) (cons (car items) shown)))))))
-
-    (define (materialize-job-event-handler event)
-      (let* ((status (runner-job-event-field event 'status #f))
-             (label (runner-job-event-field event 'label #f))
-             (metadata (runner-job-event-field event 'metadata '()))
-             (done-label (alist-ref metadata 'done-label label)))
-        (when (and label (alist-ref metadata 'ui #f))
-          (case status
-            ((started) (ui-status label))
-            ((done planned) (ui-status-done done-label))
-            ((failed) (ui-status-fail label))
-            (else #f)))))
 
     (define (job-results-values results)
       (map job-result-value results))
@@ -863,10 +847,6 @@
         (run-command-record command)))
 
     (define (collect-scheme-files dir label)
-      (define (directory? path)
-        (= (shell-command-status
-            (string-append "test -d " (shell-quote path) " >/dev/null 2>/dev/null"))
-          0))
       (define (scheme-test-file? path)
         (or (string-suffix? ".scm" path)
           (string-suffix? ".sps" path)

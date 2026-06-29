@@ -266,8 +266,9 @@
           ") && \"$tmp/main\" \"$@\"")))
 
     (define (cyclone-compile-run-argv mode src script rest)
-      (let* ((prepend (prepend-source-roots src))
-             (append-paths (append-source-roots src))
+      (let* ((src* (map absolute-path src))
+             (prepend (prepend-source-roots src*))
+             (append-paths (append-source-roots src*))
              (load-argv (runtime-load-path-argv mode src prepend append-paths)))
         (append
           (list "sh" "-c" (cyclone-compile-run-script load-argv) "kons-cyclone" script)
@@ -429,16 +430,6 @@
                    (compiler-load-path-argv mode srcs)
                    module-argv
                    (list output-flag output source))))))
-
-    (define (implementation-version-command scheme command)
-      (let* ((mode (implementation-mode scheme))
-             (version-argv (and mode (implementation-mode-field mode 'version-argv '()))))
-        (if (and version-argv (not (null? version-argv)))
-          (string-append command
-            " "
-            (string-join (map shell-quote version-argv) " ")
-            " 2>&1 | head -1")
-          #f)))
 
     (define (implementation-version-output mode command)
       (let ((version-argv (implementation-mode-field mode 'version-argv '())))

@@ -3,7 +3,8 @@
   (srfi 64)
   (kons implementation)
   (kons manifest)
-  (kons runner))
+  (kons runner)
+  (kons util))
 
 (test-begin "kons implementation")
 
@@ -196,11 +197,18 @@
     'normal
     '()
     'debug)
-  '(command
+  `(command
     (env)
     (argv "sh"
      "-c"
-     "script=$1; shift; tmp=${TMPDIR:-/tmp}/kons_cyclone_$$; mkdir -p \"$tmp\"; trap 'rm -rf \"$tmp\"' 0 1 2 15; cp \"$script\" \"$tmp/main.scm\"; (cd \"$tmp\" && cyclone '-I' 'src' '-A' 'vendor' -o main main.scm) && \"$tmp/main\" \"$@\""
+     ,(string-append
+       "script=$1; shift; tmp=${TMPDIR:-/tmp}/kons_cyclone_$$; mkdir -p \"$tmp\"; "
+       "trap 'rm -rf \"$tmp\"' 0 1 2 15; cp \"$script\" \"$tmp/main.scm\"; "
+       "(cd \"$tmp\" && cyclone '-I' "
+       (shell-quote (absolute-path "src"))
+       " '-A' "
+       (shell-quote (absolute-path "vendor"))
+       " -o main main.scm) && \"$tmp/main\" \"$@\"")
      "kons-cyclone"
      "main.scm"
      "arg")))

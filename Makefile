@@ -119,7 +119,7 @@ ci-integration:
 	cd /tmp/kons-integration-features-$(KONS_SCHEME) && $(ABS_KONS) --scheme "$(KONS_SCHEME)" --features tls check
 	cd /tmp/kons-integration-features-$(KONS_SCHEME) && $(ABS_KONS) --scheme "$(KONS_SCHEME)" --features tls test
 	cd /tmp/kons-integration-features-$(KONS_SCHEME) && $(ABS_KONS) --scheme "$(KONS_SCHEME)" --features tls run | grep 'feature-cond:tls'
-	if [ "$(KONS_SCHEME)" = capy ]; then \
+	if [ "$(KONS_SCHEME)" = capy ] || [ "$(KONS_SCHEME)" = guile ]; then \
 	  cd /tmp/kons-integration-features-$(KONS_SCHEME) && $(ABS_KONS) --scheme "$(KONS_SCHEME)" --features tls run | grep 'cond-expand:other'; \
 	else \
 	  cd /tmp/kons-integration-features-$(KONS_SCHEME) && $(ABS_KONS) --scheme "$(KONS_SCHEME)" --features tls run | grep 'cond-expand:r7rs'; \
