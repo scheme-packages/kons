@@ -141,6 +141,22 @@
       (let ((field (assq 'install (akku-version-properties version))))
         (if field (cdr field) '())))))
 
+(define directive-index-path (path-join root "directive-index.scm"))
+(write-file
+  directive-index-path
+  "#!r6rs ; -*- mode: scheme; coding: utf-8 -*-
+;; SPDX-License-Identifier: CC0-1.0
+(import (akku format index))
+
+(package (name \"directive\")
+  (versions
+    ((version \"1.0.0\")
+     (license \"MIT\"))))
+")
+(test-equal "index reader skips leading reader directive"
+  "directive"
+  (akku-package-name (car (read-akku-index directive-index-path))))
+
 (define bad-import-path (path-join root "bad-import.scm"))
 (write-file bad-import-path "(import (akku format manifest))\n(package (name \"x\"))\n")
 (test-assert "wrong package form rejected"

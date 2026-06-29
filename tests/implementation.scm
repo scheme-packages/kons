@@ -141,9 +141,17 @@
     'normal
     '()
     'debug)
-  '(command
+  `(command
     (env)
-    (argv "kawa" "--r7rs" "-Dkawa.import.path=src/*.sld:vendor/*.sld" "-f" "main.scm")))
+    (argv "kawa"
+      "--r7rs"
+      ,(string-append "-Dkawa.import.path="
+         (absolute-path "src")
+         "/*.sld:"
+         (absolute-path "vendor")
+         "/*.sld")
+      "-f"
+      "main.scm")))
 
 (check-equal
   "loko r7rs command"
