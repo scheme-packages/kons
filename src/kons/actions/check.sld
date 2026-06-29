@@ -95,7 +95,7 @@
                (r7rs->r6rs-translation-report
                  manifest
                  features
-                 (command-selected-scheme cmd)
+                 (command-adapter-scheme manifest cmd)
                  (build-output-dir manifest features cmd))))
         (ensure-supported-active-features manifest features cmd)
         (unless (command-flag? cmd "plan")

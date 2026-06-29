@@ -185,7 +185,8 @@
     (define (compat-scan-mode manifest scheme)
       (or (implementation-mode-for-dialects scheme (package-dialects manifest))
         (and (r7rs->r6rs-translation-active-for-scheme? manifest scheme)
-          (implementation-mode-for-dialects scheme '(r6rs)))))
+          (or (implementation-mode-for-dialects scheme '(r6rs))
+            (implementation-mode scheme)))))
 
     (define (translation-report-build-root manifest features maybe-cmd)
       (if (null? maybe-cmd)
@@ -193,13 +194,17 @@
         (build-output-dir manifest features (car maybe-cmd))))
 
     (define (compat-scan-report manifest features scheme . maybe-cmd)
-      (let* ((mode (compat-scan-mode manifest scheme))
+      (let* ((effective-scheme
+               (if (null? maybe-cmd)
+                 scheme
+                 (command-adapter-scheme manifest (car maybe-cmd))))
+             (mode (compat-scan-mode manifest effective-scheme))
              (standard (and mode (implementation-mode-field mode 'standard #f)))
              (translation-report
                (r7rs->r6rs-translation-report
                  manifest
                  features
-                 scheme
+                 effective-scheme
                  (translation-report-build-root manifest features maybe-cmd)))
              (translation-active? (translation-report-active? translation-report)))
         (unless mode

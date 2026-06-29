@@ -15,6 +15,9 @@
 (define runtime-root "/tmp/kons-translation-runtime-test")
 (define runtime-source-root (path-join runtime-root "src"))
 (define runtime-build-root (path-join runtime-root "build"))
+(define mixed-root "/tmp/kons-translation-mixed-test")
+(define mixed-source-root (path-join mixed-root "src"))
+(define mixed-build-root (path-join mixed-root "build"))
 (define install-root "/tmp/kons-translation-install-root")
 (define bad-root "/tmp/kons-translation-bad-test")
 (define bad-source-root (path-join bad-root "src"))
@@ -86,6 +89,7 @@
 
 (run-command (string-append "rm -rf " (shell-quote root)))
 (run-command (string-append "rm -rf " (shell-quote runtime-root)))
+(run-command (string-append "rm -rf " (shell-quote mixed-root)))
 (run-command (string-append "rm -rf " (shell-quote install-root)))
 (run-command (string-append "rm -rf " (shell-quote bad-root)))
 
@@ -233,6 +237,128 @@
          (import (scheme base) (example :2 dep))
          (define value 1)))
       forms)))
+
+(write-file
+  (path-join mixed-root "kons.scm")
+  "(package
+  (name (example mixed))
+  (version \"0.1.0\")
+  (dialects r7rs r6rs)
+  (source-path \"src\"))
+
+(dependencies)
+(dev-dependencies)
+")
+
+(write-file
+  (path-join mixed-source-root "example/mixed.sld")
+  "(define-library (example mixed)
+  (export value)
+  (import (scheme base))
+  (cond-expand
+    (capy (import (example implementation capy)))
+    (chez (import (example implementation chez)))
+    (else (import (example implementation unsupported))))
+  (begin (define value backend)))
+")
+
+(write-file
+  (path-join mixed-source-root "example/implementation/chez.sls")
+  "(library (example implementation chez)
+  (export backend)
+  (import (rnrs))
+  (define backend 'chez))
+")
+
+(write-file
+  (path-join mixed-source-root "example/implementation/capy.sld")
+  "(define-library (example implementation capy)
+  (export backend)
+  (import (scheme base))
+  (begin (define backend 'capy)))
+")
+
+(write-file
+  (path-join mixed-source-root "example/native.sld")
+  "(define-library (example native)
+  (export value)
+  (import (scheme base))
+  (begin (define value 'r7rs)))
+")
+
+(write-file
+  (path-join mixed-source-root "example/native.sls")
+  "(library (example native)
+  (export value)
+  (import (rnrs))
+  (define value 'r6rs))
+")
+
+(let* ((manifest (parse-manifest (path-join mixed-root "kons.scm")))
+       (report (r7rs->r6rs-translation-report manifest '(default) 'chez mixed-build-root)))
+  (test-assert
+    "mixed R7RS/R6RS package activates translation for Chez"
+    (translation-report-active? report))
+  (test-equal
+    "mixed translation skips native R6RS library"
+    1
+    (length (translation-report-libraries report)))
+  (write-r7rs->r6rs-translations-for-scheme! manifest '(default) 'chez mixed-build-root)
+  (let* ((output (r6rs-library-source-path mixed-build-root '(example mixed)))
+         (native-output (r6rs-library-source-path mixed-build-root '(example native)))
+         (forms (read-all-exprs output)))
+    (test-assert "mixed translated output exists" (file-exists? output))
+    (test-assert "native R6RS library is not overwritten by translation"
+      (not (file-exists? native-output)))
+    (test-equal
+      "mixed translation selects implementation feature branch"
+      '((library (example mixed)
+         (export value)
+         (import (scheme base) (example implementation chez))
+         (define value backend)))
+      forms)))
+
+(let* ((manifest (parse-manifest (path-join mixed-root "kons.scm")))
+       (capy-build-root (path-join mixed-root "capy-r6rs-build"))
+       (report (r7rs->r6rs-translation-report manifest '(default) 'capy-r6rs capy-build-root)))
+  (test-assert
+    "mixed R7RS/R6RS package activates translation for adapted Capy R6RS"
+    (translation-report-active? report))
+  (write-r7rs->r6rs-translations-for-scheme! manifest '(default) 'capy-r6rs capy-build-root)
+  (test-equal
+    "adapted Capy R6RS translation selects Capy feature branch"
+    '((library (example mixed)
+       (export value)
+       (import (scheme base) (example implementation capy))
+       (define value backend)))
+    (read-all-exprs (r6rs-library-source-path capy-build-root '(example mixed)))))
+
+(write-file
+  (path-join mixed-root "kons.scm")
+  "(package
+  (name (example mixed))
+  (version \"0.1.0\")
+  (dialects r7rs)
+  (source-path \"src\"))
+
+(dependencies)
+(dev-dependencies)
+")
+
+(let* ((manifest (parse-manifest (path-join mixed-root "kons.scm")))
+       (r7rs-build-root (path-join mixed-root "r7rs-build"))
+       (report (r7rs->r6rs-translation-report manifest '(default) 'chez r7rs-build-root)))
+  (test-assert
+    "R7RS package with native R6RS source still activates translation"
+    (translation-report-active? report))
+  (test-equal
+    "R7RS package translates only missing native R6RS libraries"
+    '((example mixed))
+    (map translation-library-report-name (translation-report-libraries report)))
+  (write-r7rs->r6rs-translations-for-scheme! manifest '(default) 'chez r7rs-build-root)
+  (test-assert
+    "R7RS package native R6RS library is not overwritten"
+    (not (file-exists? (r6rs-library-source-path r7rs-build-root '(example native))))))
 
 (write-file
   (path-join bad-root "kons.scm")

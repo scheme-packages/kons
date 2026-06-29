@@ -3,8 +3,6 @@
 [![license: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 kons is a package manager and build system for Scheme, inspired by Cargo.
-It grabs hold of Scheme code from many dialects and implementations and
-shakes it until it runs everywhere.
 
 * No complicated setup to point out where libraries are; kons discovers
   `define-library` and R6RS `library` forms
@@ -24,6 +22,7 @@ shakes it until it runs everywhere.
  [akku]: https://akkuscm.org/
  [snow]: https://snow-fort.org/
 
+
 ## Dependencies
 
 kons itself needs a Scheme implementation that can run its manager
@@ -32,6 +31,32 @@ Chibi Scheme. Network operations use `curl`, and Git sources use `git`
 when available. Target packages can target a much wider set of
 implementations (see below); kons only needs one of the manager
 implementations installed to drive them.
+
+## Supported Schemes
+
+kons can run itself on:
+
+ - Capy
+ - Gauche
+ - GNU Guile
+ - Chibi Scheme
+
+kons can drive target packages on:
+
+ - Capy
+ - Chez Scheme
+ - Gauche
+ - GNU Guile
+ - Chibi Scheme
+ - Sagittarius
+ - STklos
+ - Kawa
+ - Loko
+ - Skint
+ - Cyclone
+ - MIT/GNU Scheme
+ - Mosh
+ - IronScheme
 
 ## Installation
 

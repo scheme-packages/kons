@@ -26,6 +26,7 @@
     (kons util)
     (kons implementation)
     (kons manifest)
+    (kons runner)
     (kons library-discovery)
     (kons options))
 
@@ -79,21 +80,23 @@
     (define (package-has-dialect? manifest dialect)
       (memq dialect (package-dialects manifest)))
 
-    (define (implementation-supports-dialect? scheme dialect)
-      (and (implementation-mode-for-dialects scheme (list dialect)) #t))
+    (define (translation-mode-for-scheme manifest scheme)
+      (or (implementation-mode-for-dialects scheme (package-dialects manifest))
+        (implementation-mode-for-dialects scheme '(r6rs))
+        (implementation-mode scheme)))
 
-    (define (implementation-supports-package-dialects? manifest scheme)
-      (and (implementation-mode-for-dialects scheme (package-dialects manifest)) #t))
+    (define (translation-mode-r6rs? mode)
+      (and mode
+        (eq? (implementation-mode-field mode 'standard #f) 'r6rs)))
 
     (define (r7rs->r6rs-translation-active-for-scheme? manifest scheme)
       (and (package-has-dialect? manifest 'r7rs)
-        (not (implementation-supports-package-dialects? manifest scheme))
-        (implementation-supports-dialect? scheme 'r6rs)))
+        (translation-mode-r6rs? (translation-mode-for-scheme manifest scheme))))
 
     (define (r7rs->r6rs-translation-active? manifest cmd)
       (r7rs->r6rs-translation-active-for-scheme?
         manifest
-        (command-selected-scheme cmd)))
+        (command-adapter-scheme manifest cmd)))
 
     (define (mkdir-for-library-path path)
       (run-command (string-append "mkdir -p " (shell-quote (dirname path)))))
@@ -543,17 +546,43 @@
           name
           (r6rs-library-entries/context manifest #f))))
 
-    (define (translation-context-for manifest active-features)
+    (define (translation-active-features manifest active-features scheme)
+      (let ((mode (translation-mode-for-scheme manifest scheme)))
+        (dedupe-symbols
+          (append active-features
+            (if mode (implementation-mode-features mode) '())))))
+
+    (define (translation-discovery-context manifest active-features scheme)
+      (make-library-discovery-context
+        (translation-active-features manifest active-features scheme)
+        (lambda (name) #t)))
+
+    (define (r6rs-entry-for-r7rs-name manifest context name)
+      (library-key-entry
+        (cons 'r6rs (r7rs-library-name->r6rs name))
+        (r6rs-library-entries/context manifest context)))
+
+    (define (r7rs-entry-needs-translation? manifest context entry)
+      (not (r6rs-entry-for-r7rs-name manifest context (cadr entry))))
+
+    (define (r7rs-translation-entries manifest active-features scheme)
+      (let ((context (translation-discovery-context manifest active-features scheme)))
+        (filter
+          (lambda (entry)
+            (r7rs-entry-needs-translation? manifest context entry))
+          (r7rs-library-entries/context manifest context))))
+
+    (define (translation-context-for manifest active-features scheme)
       (make-translation-context
         manifest
         #f
-        active-features
+        (translation-active-features manifest active-features scheme)
         (lambda (name)
           (translation-library-available? manifest name))))
 
     (define (r7rs->r6rs-translation-report manifest active-features scheme build-root)
       (if (r7rs->r6rs-translation-active-for-scheme? manifest scheme)
-        (let ((context (translation-context-for manifest active-features)))
+        (let ((context (translation-context-for manifest active-features scheme)))
           (make-translation-report
             #t
             scheme
@@ -561,7 +590,7 @@
             (map
               (lambda (entry)
                 (translation-library-report-for-entry build-root entry context))
-              (r7rs-library-entries/context manifest #f))))
+              (r7rs-translation-entries manifest active-features scheme))))
         (make-translation-report #f scheme #f '())))
 
     (define (unsupported-translation-form->sexp item)
@@ -612,16 +641,16 @@
 
     (define (write-r7rs->r6rs-translations-for-scheme! manifest active-features scheme build-root)
       (when (r7rs->r6rs-translation-active-for-scheme? manifest scheme)
-        (let ((context (translation-context-for manifest active-features)))
+        (let ((context (translation-context-for manifest active-features scheme)))
           (for-each
             (lambda (entry)
               (write-translated-library!
                 (translated-library-for-entry build-root entry context)))
-            (r7rs-library-entries/context manifest #f)))))
+            (r7rs-translation-entries manifest active-features scheme)))))
 
     (define (write-r7rs->r6rs-translations! manifest active-features cmd build-root)
       (write-r7rs->r6rs-translations-for-scheme!
         manifest
         active-features
-        (command-selected-scheme cmd)
+        (command-adapter-scheme manifest cmd)
         build-root))))

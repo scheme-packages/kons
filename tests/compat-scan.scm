@@ -157,6 +157,12 @@
     'missing
     (compat-diagnostic-status missing-lib)))
 
+(run-command
+  (string-append "rm -f "
+    (shell-quote (path-join root "src/example/app.sls"))
+    " "
+    (shell-quote (path-join root "src/example/lib.sls"))))
+
 (write-file
   (path-join root "kons.scm")
   "(package

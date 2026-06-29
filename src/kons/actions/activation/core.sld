@@ -177,13 +177,22 @@
         (materialize-local-sources manifest features include-dev? #f cmd)
         (materialize-lock-sources manifest (external-only-lock lock) include-dev? #f cmd)))
 
+    (define (build-scheme-token manifest cmd)
+      (let ((requested-dialect (command-option cmd "dialect" #f)))
+        (if requested-dialect
+          (string-append
+            (symbol->string (command-selected-scheme cmd))
+            "-"
+            requested-dialect)
+          (symbol->string (command-adapter-scheme manifest cmd)))))
+
     (define (build-token manifest features cmd)
       (safe-store-token
         (string-append (name->string (package-name manifest))
           "-"
           (if (package-version manifest) (package-version manifest) "0")
           "-"
-          (symbol->string (command-selected-scheme cmd))
+          (build-scheme-token manifest cmd)
           "-"
           (or (command-option cmd "target" #f) "host")
           "-"
@@ -341,9 +350,10 @@
     (define (dependency-r7rs->r6rs-translation-active? source-root cmd)
       (let ((package-root (find-package-root-for-source-root source-root)))
         (and package-root
-          (r7rs->r6rs-translation-active-for-scheme?
-            (parse-manifest (path-join package-root "kons.scm"))
-            (command-selected-scheme cmd)))))
+          (let ((manifest (parse-manifest (path-join package-root "kons.scm"))))
+            (r7rs->r6rs-translation-active-for-scheme?
+              manifest
+              (command-adapter-scheme manifest cmd))))))
 
     (define (activation-source-roots-with-dependency-builds manifest include-dev? features cmd)
       (let ((srcs (effective-activation-source-roots manifest include-dev? features cmd)))
