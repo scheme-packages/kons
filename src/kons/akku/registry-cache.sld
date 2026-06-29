@@ -112,6 +112,11 @@
             (path-join (path-join "src" "kons") "akku")
             (path-join "keys.d" default-akku-archive-key-file)))
         (path-join
+          (path-join (path-join (path-join (kons-home) "lib") "kons") "src")
+          (path-join
+            (path-join "kons" "akku")
+            (path-join "keys.d" default-akku-archive-key-file)))
+        (path-join
           (current-directory)
           (path-join
             (path-join (path-join "src" "kons") "akku")

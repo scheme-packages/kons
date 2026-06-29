@@ -8,6 +8,11 @@ KONS_REF=${KONS_REF:-"master"}
 KONS_TARBALL_URL=${KONS_TARBALL_URL:-"$KONS_REPO/archive/$KONS_REF.tar.gz"}
 KONS_SOURCE=${KONS_SOURCE:-""}
 KONS_DEFAULT_SCHEME=${KONS_DEFAULT_SCHEME:-""}
+KONS_CAPY_APT_KEY_URL=${KONS_CAPY_APT_KEY_URL:-"https://codeberg.org/api/packages/playXE/debian/repository.key"}
+KONS_CAPY_APT_REPO=${KONS_CAPY_APT_REPO:-"https://codeberg.org/api/packages/playXE/debian"}
+KONS_CAPY_APT_DISTRIBUTION=${KONS_CAPY_APT_DISTRIBUTION:-"trixie"}
+KONS_CAPY_APT_COMPONENT=${KONS_CAPY_APT_COMPONENT:-"main"}
+KONS_CAPY_APT_PACKAGE=${KONS_CAPY_APT_PACKAGE:-"capyscheme"}
 NON_INTERACTIVE=0
 DRY_RUN=0
 KEEP_TMP=${KONS_KEEP_TMP:-0}
@@ -42,10 +47,11 @@ Options:
   --keep-tmp             Keep temporary source checkout
   -h, --help             Show this help
 
-The installer verifies the selected Scheme runner is available and can offer to
-install Gauche, Guile, or Chibi via your system package manager (apt, pacman,
-dnf, brew, pkg, etc.). The installed `kons` launcher can run through CapyScheme,
-Gauche, Guile, or Chibi.
+The installer verifies the selected Scheme runner is available. It can install
+CapyScheme from the Codeberg apt repository, or offer to install Gauche, Guile,
+or Chibi via your system package manager (apt, pacman, dnf, brew, pkg, etc.).
+The installed `kons` launcher can run through CapyScheme, Gauche, Guile, or
+Chibi.
 USAGE
 }
 
@@ -276,10 +282,43 @@ run_privileged() {
   esac
 }
 
+capy_apt_source_line() {
+  say "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] $KONS_CAPY_APT_REPO $KONS_CAPY_APT_DISTRIBUTION $KONS_CAPY_APT_COMPONENT"
+}
+
+install_capy_apt_runner() {
+  pkg_mgr=$(detect_pkg_manager)
+
+  if [ "$pkg_mgr" != apt ]; then
+    say_err "CapyScheme auto-install is only supported through apt."
+    scheme_install_hint capy >&2
+    return 1
+  fi
+
+  require_cmd curl
+
+  say "Installing CapyScheme from the Codeberg apt repository:"
+  say "  $(capy_apt_source_line)"
+  say "  apt-get install -y $KONS_CAPY_APT_PACKAGE"
+
+  run_privileged apt mkdir -p /etc/apt/keyrings
+  run_privileged apt sh -c "curl -fsSL '$KONS_CAPY_APT_KEY_URL' -o /etc/apt/keyrings/forgejo-playXE.asc"
+  run_privileged apt sh -c "printf '%s\n' '$(capy_apt_source_line)' > /etc/apt/sources.list.d/forgejo-playXE.list"
+  run_privileged apt sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y $KONS_CAPY_APT_PACKAGE"
+}
+
 scheme_install_hint() {
   scheme=$1
   pkg_mgr=$(detect_pkg_manager)
   os=$(detect_os)
+
+  if [ "$scheme" = capy ]; then
+    say "  sudo curl $KONS_CAPY_APT_KEY_URL -o /etc/apt/keyrings/forgejo-playXE.asc"
+    say "  echo \"$(capy_apt_source_line)\" | sudo tee /etc/apt/sources.list.d/forgejo-playXE.list"
+    say "  sudo apt update"
+    say "  sudo apt install $KONS_CAPY_APT_PACKAGE"
+    return 0
+  fi
 
   if [ "$pkg_mgr" != none ]; then
     if cmd=$(scheme_install_command "$scheme" "$pkg_mgr"); then
@@ -298,6 +337,12 @@ scheme_install_hint() {
 
 install_scheme_runner() {
   scheme=$1
+
+  if [ "$scheme" = capy ]; then
+    install_capy_apt_runner
+    return 0
+  fi
+
   pkg_mgr=$(detect_pkg_manager)
 
   if [ "$pkg_mgr" = none ]; then
@@ -355,6 +400,12 @@ ensure_scheme_runner() {
   fi
 
   say_err "Scheme runner not found: $command ($scheme)"
+
+  if [ "$scheme" = capy ]; then
+    install_scheme_runner "$scheme" || die "failed to install $scheme"
+    require_scheme_runner "$scheme"
+    return 0
+  fi
 
   if [ "$NON_INTERACTIVE" -eq 1 ] || [ ! -r /dev/tty ]; then
     say_err "Install it manually:"
@@ -494,6 +545,23 @@ ensure_vendor_dependency() {
   [ -d "$source_dir/vendor/conduit/src/conduit" ] || die "vendor/conduit did not provide src/conduit"
 }
 
+install_bundled_akku_key() {
+  source_dir=$1
+  source_key=$source_dir/src/kons/akku/keys.d/akku-archive-2018.gpg
+  installed_key_dir=$KONS_HOME/lib/bin/kons/src/kons/akku/keys.d
+  installed_key=$installed_key_dir/akku-archive-2018.gpg
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    say "+ mkdir -p $installed_key_dir"
+    say "+ copy $source_key $installed_key"
+    return 0
+  fi
+
+  [ -f "$source_key" ] || die "bundled Akku key not found: $source_key"
+  run mkdir -p "$installed_key_dir"
+  run cp "$source_key" "$installed_key"
+}
+
 write_env_files() {
   scheme=$1
   bin_dir=$KONS_HOME/bin
@@ -566,6 +634,7 @@ install_kons() {
       --path "$source_dir" --root "$KONS_HOME" \
       --directory "$bin_dir" --name kons
   fi
+  install_bundled_akku_key "$source_dir"
   write_env_files "$scheme"
 }
 

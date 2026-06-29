@@ -37,6 +37,7 @@
          output
          metadata)
         (import (scheme base)
+         (scheme cxr)
          (scheme process-context)
          (scheme write))
         (begin
@@ -158,6 +159,7 @@
          output
          metadata)
         (import (rnrs)
+         (rnrs lists)
          (rnrs programs))
         (define (arg-value name default)
          (let loop ((items (command-line)))

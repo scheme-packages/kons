@@ -16,6 +16,47 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Run unit tests
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            debian:trixie-slim \
+            sh -lc '
+              set -eu
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends ca-certificates curl make git >/dev/null
+              mkdir -p /etc/apt/keyrings
+              curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc
+              echo "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] https://codeberg.org/api/packages/playXE/debian trixie main" > /etc/apt/sources.list.d/forgejo-playXE.list
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends capyscheme >/dev/null
+              make ci-unit
+            '
+
+  implementation:
+    name: implementation (${{ matrix.scheme }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: capy
+            image: debian:trixie-slim
+          - scheme: gauche
+            image: schemers/gauche
+          - scheme: guile
+            image: schemers/guile
+          - scheme: chibi
+            image: schemers/chibi
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - name: Run implementation tests
         run: |
           docker run --rm \
@@ -23,10 +64,19 @@ jobs:
             -w /work \
             -e KONS_NO_COLOR=1 \
             -e DEBIAN_FRONTEND=noninteractive \
-            schemers/gauche \
+            "${{ matrix.image }}" \
             sh -lc '
               set -eu
-              gosh -r7 -I vendor/scm-args/src -I src tests/implementation.scm
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends ca-certificates curl make git >/dev/null
+              if [ "${{ matrix.install }}" = capy ]; then
+                mkdir -p /etc/apt/keyrings
+                curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc
+                echo "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] https://codeberg.org/api/packages/playXE/debian trixie main" > /etc/apt/sources.list.d/forgejo-playXE.list
+                apt-get update >/dev/null
+                apt-get install -y --no-install-recommends capyscheme >/dev/null
+              fi
+              make ci-implementation KONS_SCHEME="${{ matrix.scheme }}"
             '
 
   manager-install:
@@ -36,12 +86,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - scheme: capy
+            image: debian:trixie-slim
+            install: capy
           - scheme: gauche
             image: schemers/gauche
+            install: base
           - scheme: guile
             image: schemers/guile
+            install: base
           - scheme: chibi
             image: schemers/chibi
+            install: base
 
     steps:
       - uses: actions/checkout@v4
@@ -59,8 +115,55 @@ jobs:
             sh -lc '
               set -eu
               apt-get update >/dev/null
-              apt-get install -y --no-install-recommends make git ca-certificates >/dev/null
+              apt-get install -y --no-install-recommends ca-certificates curl make git >/dev/null
               make ci-manager-install KONS_SCHEME="${{ matrix.scheme }}"
+            '
+
+  integration:
+    name: integration (${{ matrix.scheme }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: capy
+            image: debian:trixie-slim
+            install: capy
+          - scheme: gauche
+            image: schemers/gauche
+            install: base
+          - scheme: guile
+            image: schemers/guile
+            install: base
+          - scheme: chibi
+            image: schemers/chibi
+            install: base
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run CLI integration tests
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e KONS_NO_COLOR=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "${{ matrix.image }}" \
+            sh -lc '
+              set -eu
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends ca-certificates curl make git >/dev/null
+              if [ "${{ matrix.install }}" = capy ]; then
+                mkdir -p /etc/apt/keyrings
+                curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc
+                echo "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] https://codeberg.org/api/packages/playXE/debian trixie main" > /etc/apt/sources.list.d/forgejo-playXE.list
+                apt-get update >/dev/null
+                apt-get install -y --no-install-recommends capyscheme >/dev/null
+              fi
+              make ci-integration KONS_SCHEME="${{ matrix.scheme }}"
             '
 
   runtime-r7rs:
@@ -70,33 +173,46 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - scheme: capy
+            image: debian:trixie-slim
+            manager: capy
+            install: capy
           - scheme: gauche
             image: schemers/gauche
             manager: gauche
+            install: base
           - scheme: guile
             image: schemers/guile
             manager: guile
+            install: base
           - scheme: chibi
             image: schemers/chibi
             manager: chibi
+            install: base
           - scheme: sagittarius
             image: schemers/sagittarius
             manager: gauche
+            install: gauche
           - scheme: stklos
             image: schemers/stklos
             manager: gauche
+            install: gauche
           - scheme: kawa
             image: schemers/kawa
             manager: gauche
+            install: gauche
           - scheme: loko
             image: schemers/loko
             manager: gauche
+            install: gauche
           - scheme: skint
             image: schemers/skint
             manager: gauche
+            install: gauche
           - scheme: cyclone
             image: schemers/cyclone
             manager: gauche
+            install: gauche
 
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +230,17 @@ jobs:
             sh -lc '
               set -eu
               apt-get update >/dev/null
-              apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null
+              apt-get install -y --no-install-recommends make git ca-certificates curl >/dev/null
+              if [ "${{ matrix.install }}" = gauche ]; then
+                apt-get install -y --no-install-recommends gauche >/dev/null
+              fi
+              if [ "${{ matrix.install }}" = capy ]; then
+                mkdir -p /etc/apt/keyrings
+                curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc
+                echo "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] https://codeberg.org/api/packages/playXE/debian trixie main" > /etc/apt/sources.list.d/forgejo-playXE.list
+                apt-get update >/dev/null
+                apt-get install -y --no-install-recommends capyscheme >/dev/null
+              fi
               make ci-runtime-r7rs KONS_SCHEME="${{ matrix.manager }}" KONS_RUNTIME_SCHEME="${{ matrix.scheme }}"
             '
 
@@ -125,12 +251,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - scheme: capy
+            image: debian:trixie-slim
+            manager: capy
+            install: capy
           - scheme: chez
             image: schemers/chezscheme
+            manager: gauche
+            install: gauche
           - scheme: mosh
             image: schemers/mosh
+            manager: gauche
+            install: gauche
           - scheme: ironscheme
             image: schemers/ironscheme
+            manager: gauche
+            install: gauche
 
     steps:
       - uses: actions/checkout@v4
@@ -148,8 +284,18 @@ jobs:
             sh -lc '
               set -eu
               apt-get update >/dev/null
-              apt-get install -y --no-install-recommends gauche make git ca-certificates >/dev/null
-              make ci-runtime-r6rs KONS_SCHEME=gauche KONS_RUNTIME_SCHEME="${{ matrix.scheme }}"
+              apt-get install -y --no-install-recommends make git ca-certificates curl >/dev/null
+              if [ "${{ matrix.install }}" = gauche ]; then
+                apt-get install -y --no-install-recommends gauche >/dev/null
+              fi
+              if [ "${{ matrix.install }}" = capy ]; then
+                mkdir -p /etc/apt/keyrings
+                curl -fsSL https://codeberg.org/api/packages/playXE/debian/repository.key -o /etc/apt/keyrings/forgejo-playXE.asc
+                echo "deb [signed-by=/etc/apt/keyrings/forgejo-playXE.asc] https://codeberg.org/api/packages/playXE/debian trixie main" > /etc/apt/sources.list.d/forgejo-playXE.list
+                apt-get update >/dev/null
+                apt-get install -y --no-install-recommends capyscheme >/dev/null
+              fi
+              make ci-runtime-r6rs KONS_SCHEME="${{ matrix.manager }}" KONS_RUNTIME_SCHEME="${{ matrix.scheme }}"
             '
 
   registry:

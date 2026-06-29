@@ -598,24 +598,24 @@
           (newline out))))
 
     (define (check-system-library scheme srcs library-name)
-      (let* ((script (path-join "/tmp"
+      (let* ((script (temporary-file-path
                       (string-append
                         "kons-system-check-"
                         (symbol->string scheme)
                         "-"
                         (safe-store-token (value-token library-name))
                         ".scm")))
-             (cmd #f))
-        (when (file-exists? script)
-          (delete-file script))
+             (cmd #f)
+             (status #f))
         (write-system-check-script script scheme library-name)
         (set! cmd (scheme-command scheme srcs script '()))
-        (unless (= (shell-command-status (string-append cmd " >/dev/null 2>/dev/null")) 0)
+        (set! status (shell-command-status (string-append cmd " >/dev/null 2>/dev/null")))
+        (when (file-exists? script)
+          (delete-file script))
+        (unless (= status 0)
           (dependency-error "system Scheme library is not available for selected implementation"
             library-name
-            scheme))
-        (when (file-exists? script)
-          (delete-file script))))
+            scheme))))
 
     (define (check-system-dependencies manifest cmd include-dev? features srcs)
       (let ((scheme (command-adapter-scheme manifest cmd))
